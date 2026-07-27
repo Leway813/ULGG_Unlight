@@ -55,6 +55,24 @@ _FACE_LABELS_ZH = {
 _SUPPORTED_MODES = {"pve", "pvp", "unknown"}
 _PROTOCOL_SIDES = {"A", "B", "unknown"}
 _OUTCOMES = {"win", "lose", "draw"}
+SUPPORTED_EVENT_NAMES = frozenset(
+    {
+        "gameStart",
+        "drawPhase",
+        "eventCard",
+        "cardDraw",
+        "cardclickedA",
+        "cardclickedB",
+        "cardOpen",
+        "cardOpen_A",
+        "cardOpen_B",
+        "chara_A",
+        "chara_B",
+        "endPhase",
+        "endTurn",
+        "result",
+    }
+)
 
 
 @dataclass(frozen=True)

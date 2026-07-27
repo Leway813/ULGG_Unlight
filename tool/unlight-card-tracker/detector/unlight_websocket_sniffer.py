@@ -36,6 +36,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 import websockets
+from battle_observation_stream import BattleObservationStream
 
 
 DEBUG_PORT = 9333
@@ -548,6 +549,10 @@ class ULSniffer:
         event_dir=False,
         output_dir=OUT_DIR,
         enable_stdin_markers=True,
+        battle_observations=False,
+        local_side=None,
+        battle_mode="unknown",
+        battle_observation_stream=None,
     ):
         self.port = port
         self.log_all = log_all
@@ -555,6 +560,7 @@ class ULSniffer:
         self.write_event_files = event_dir
         self.output_dir = Path(output_dir)
         self.enable_stdin_markers = enable_stdin_markers
+        self.battle_observation_stream = battle_observation_stream
 
         self.msg_id = 0
         self.sequence = 0
@@ -578,6 +584,13 @@ class ULSniffer:
         self.events_dir = self.output_dir / "events"
         if self.write_event_files:
             self.events_dir.mkdir(parents=True, exist_ok=True)
+
+        if self.battle_observation_stream is None and battle_observations:
+            self.battle_observation_stream = BattleObservationStream(
+                self.output_dir / "battle-observations.jsonl",
+                local_side=local_side,
+                battle_mode=battle_mode,
+            )
 
         self.logfile = None
         if log_all:
@@ -749,6 +762,8 @@ class ULSniffer:
                 filename = sanitize_event_filename(event_name) + ".jsonl"
                 self._write_jsonl_unlocked(self.events_dir / filename, record)
             self._update_stats_unlocked(record, payload_size)
+            if self.battle_observation_stream is not None:
+                self.battle_observation_stream.process(record)
             return record
 
     def _write_packet_log(self, timestamp, direction, raw_payload, decoded, event):
@@ -1047,6 +1062,7 @@ class ULSniffer:
             )
 
     def close(self):
+        battle_summary = None
         with self._record_lock:
             if self._closed:
                 return
@@ -1061,8 +1077,14 @@ class ULSniffer:
             self.events_file.close()
             if self.logfile:
                 self.logfile.close()
+            if self.battle_observation_stream is not None:
+                battle_summary = self.battle_observation_stream.close()
             self._closed = True
         self.print_event_summary(summary)
+        if battle_summary is not None:
+            print("\n[+] Battle observation summary")
+            for key, value in battle_summary.items():
+                print(f"    {key}: {value}")
 
 
 def launch_game(port=DEBUG_PORT):
@@ -1115,6 +1137,21 @@ def build_argument_parser():
         action="store_true",
         help="另依事件寫入 deck/events/<event-name>.jsonl",
     )
+    parser.add_argument(
+        "--battle-observations",
+        action="store_true",
+        help="寫入安全 battle observation stream",
+    )
+    parser.add_argument(
+        "--local-side",
+        choices=("A", "B"),
+        help="明確指定本機 protocol side；未指定時不推測",
+    )
+    parser.add_argument(
+        "--battle-mode",
+        choices=("pvp", "pve", "unknown"),
+        default="unknown",
+    )
     parser.add_argument("--port", type=int, default=DEBUG_PORT)
     return parser
 
@@ -1142,6 +1179,9 @@ def main():
         log_all=args.all or args.log or args.unsafe_raw_log,
         unsafe_raw_log=args.unsafe_raw_log,
         event_dir=args.event_dir,
+        battle_observations=args.battle_observations,
+        local_side=args.local_side,
+        battle_mode=args.battle_mode,
     )
     try:
         asyncio.run(sniffer.run())
