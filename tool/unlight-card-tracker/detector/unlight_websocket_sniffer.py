@@ -39,6 +39,7 @@ import requests
 import websockets
 from battle_observation_stream import BattleObservationStream
 from battle_stream_processor import BattleStreamProcessor
+from tracker_event_client import TrackerEventClient
 
 
 DEBUG_PORT = 9333
@@ -580,6 +581,14 @@ def short_session_id(session_id):
     return f"{text[:4]}...{text[-4:]}"
 
 
+def producer_instance_for_port(port):
+    if port == 1221:
+        return "chrome"
+    if port == 9333:
+        return "electron"
+    return f"port-{port}"
+
+
 def _format_card_face(face):
     if not isinstance(face, dict):
         return "unknown"
@@ -753,6 +762,8 @@ class ULSniffer:
         battle_start_mode="strict",
         battle_console_level="important",
         battle_processor=None,
+        tracker_event_client=None,
+        tracker_api_required=False,
         console=print,
     ):
         self.port = port
@@ -768,12 +779,26 @@ class ULSniffer:
         )
         self.battle_console_level = battle_console_level
         self.producer_session_id = producer_session_id
+        self.tracker_event_client = (
+            tracker_event_client if process_battle_state else None
+        )
+        self.tracker_api_required = bool(tracker_api_required)
+        self._battle_processing_stopped = False
         self._battle_processor_stats = {
             "observations_processed": 0,
             "domain_events_emitted": 0,
             "state_changes": 0,
             "duplicate_events": 0,
             "processor_errors": 0,
+        }
+        self._tracker_api_stats = {
+            "api_enabled": self.tracker_event_client is not None,
+            "api_events_attempted": 0,
+            "api_events_accepted": 0,
+            "api_duplicates": 0,
+            "api_errors": 0,
+            "api_last_error_code": None,
+            "api_diverged": False,
         }
 
         self.msg_id = 0
@@ -1022,7 +1047,10 @@ class ULSniffer:
             return record
 
     def _process_battle_observation(self, observation):
-        if self.battle_processor is None:
+        if (
+            self.battle_processor is None
+            or self._battle_processing_stopped
+        ):
             return None
         stats = self._battle_processor_stats
         stats["observations_processed"] += 1
@@ -1064,7 +1092,67 @@ class ULSniffer:
             self.battle_console_level,
         ):
             self.console(line)
+        self._submit_domain_events(domain_events)
         return result
+
+    def record_tracker_api_registration(self, result):
+        if self.tracker_event_client is None:
+            return
+        if isinstance(result, dict) and result.get("ok"):
+            if self.battle_console_level == "debug":
+                self.console("[API] producer session registered")
+            return
+        code = (
+            result.get("code")
+            if isinstance(result, dict)
+            else "CLIENT_EXCEPTION"
+        )
+        self._record_tracker_api_error(code or "UNKNOWN_ERROR")
+
+    def _record_tracker_api_error(self, code):
+        stats = self._tracker_api_stats
+        stats["api_errors"] += 1
+        stats["api_last_error_code"] = str(code)
+        stats["api_diverged"] = True
+        self.console(f"[API WARN] failed code={code}")
+        if self.tracker_api_required:
+            self._battle_processing_stopped = True
+            self.console("[API ERROR] required API failed; processing stopped")
+
+    def _submit_domain_events(self, domain_events):
+        if self.tracker_event_client is None or not domain_events:
+            return
+        for event in domain_events:
+            self._tracker_api_stats["api_events_attempted"] += 1
+            try:
+                result = self.tracker_event_client.submit_event(event)
+            except Exception:
+                self._record_tracker_api_error("CLIENT_EXCEPTION")
+                break
+            if not isinstance(result, dict) or not result.get("ok"):
+                code = (
+                    result.get("code")
+                    if isinstance(result, dict)
+                    else "INVALID_CLIENT_RESULT"
+                )
+                self._record_tracker_api_error(code or "UNKNOWN_ERROR")
+                break
+            if result.get("duplicate"):
+                self._tracker_api_stats["api_duplicates"] += 1
+                if self.battle_console_level == "debug":
+                    self.console(
+                        "[API] duplicate "
+                        f"event={event.get('event_type')} "
+                        f"sequence={event.get('source_sequence')}"
+                    )
+            else:
+                self._tracker_api_stats["api_events_accepted"] += 1
+                if self.battle_console_level == "debug":
+                    self.console(
+                        "[API] accepted "
+                        f"event={event.get('event_type')} "
+                        f"sequence={event.get('source_sequence')}"
+                    )
 
     def _write_packet_log(self, timestamp, direction, raw_payload, decoded, event):
         if not self.logfile:
@@ -1383,6 +1471,7 @@ class ULSniffer:
                 state.get("opponent_revealed_cards", [])
             ),
             "outcome": state.get("outcome"),
+            **self._tracker_api_stats,
         }
 
     def print_battle_processor_summary(self, summary):
@@ -1501,6 +1590,20 @@ def build_argument_parser():
         choices=("quiet", "important", "debug"),
         help="BattleState 終端摘要層級；需搭配 --process-battle-state",
     )
+    parser.add_argument(
+        "--tracker-api-url",
+        help="提交 domain events 的 Tracker API origin",
+    )
+    parser.add_argument(
+        "--tracker-api-timeout",
+        type=float,
+        help="Tracker API 單次 HTTP timeout；預設 2.0 秒",
+    )
+    parser.add_argument(
+        "--tracker-api-required",
+        action="store_true",
+        help="API 失敗後停止正式 battle processing",
+    )
     parser.add_argument("--port", type=int, default=DEBUG_PORT)
     return parser
 
@@ -1514,10 +1617,26 @@ def validate_runtime_arguments(parser, args):
             "--battle-start-mode and --battle-console-level require "
             "--process-battle-state"
         )
+    if args.tracker_api_url and not args.process_battle_state:
+        parser.error("--tracker-api-url requires --process-battle-state")
+    if args.tracker_api_required and not args.tracker_api_url:
+        parser.error("--tracker-api-required requires --tracker-api-url")
+    if (
+        args.tracker_api_timeout is not None
+        and not args.tracker_api_url
+    ):
+        parser.error("--tracker-api-timeout requires --tracker-api-url")
+    if (
+        args.tracker_api_timeout is not None
+        and args.tracker_api_timeout <= 0
+    ):
+        parser.error("--tracker-api-timeout must be positive")
     if args.battle_start_mode is None:
         args.battle_start_mode = "strict"
     if args.battle_console_level is None:
         args.battle_console_level = "important"
+    if args.tracker_api_timeout is None:
+        args.tracker_api_timeout = 2.0
     return args
 
 
@@ -1545,6 +1664,17 @@ def main():
         if args.process_battle_state
         else None
     )
+    tracker_event_client = None
+    if args.tracker_api_url:
+        try:
+            tracker_event_client = TrackerEventClient(
+                args.tracker_api_url,
+                producer_session_id=producer_session_id,
+                producer_instance=producer_instance_for_port(args.port),
+                timeout=args.tracker_api_timeout,
+            )
+        except ValueError as error:
+            parser.error(str(error))
     sniffer = ULSniffer(
         port=args.port,
         log_all=args.all or args.log or args.unsafe_raw_log,
@@ -1557,7 +1687,18 @@ def main():
         producer_session_id=producer_session_id,
         battle_start_mode=args.battle_start_mode,
         battle_console_level=args.battle_console_level,
+        tracker_event_client=tracker_event_client,
+        tracker_api_required=args.tracker_api_required,
     )
+    if tracker_event_client is not None:
+        try:
+            registration = tracker_event_client.register_session()
+        except Exception:
+            registration = {
+                "ok": False,
+                "code": "CLIENT_EXCEPTION",
+            }
+        sniffer.record_tracker_api_registration(registration)
     try:
         asyncio.run(sniffer.run())
     except KeyboardInterrupt:

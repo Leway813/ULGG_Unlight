@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, Query
+from pydantic import BaseModel
 from fastapi.responses import (
     FileResponse,
     JSONResponse,
@@ -14,10 +15,17 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 
 from client_profile import ClientProfileStatus
+from domain_event_schema import (
+    DOMAIN_TEMPLATE_SET_VERSION,
+    DomainEventValidationError,
+    domain_event_to_durable_event,
+)
 from event_store import (
     CursorExpiredError,
+    EventIdentityConflictError,
     EventStore,
     SequenceGapError,
+    SessionIdentityConflictError,
     SessionNotFoundError,
 )
 
@@ -28,6 +36,24 @@ MAX_EVENT_LIMIT = 1000
 WARNING_THRESHOLD_BYTES = 256 * 1024 * 1024
 CRITICAL_THRESHOLD_BYTES = 1024 * 1024 * 1024
 TRACKER_ROOT = Path(__file__).resolve().parent.parent
+
+
+class SnifferSessionRegistration(BaseModel):
+    session_id: str
+    producer_type: Literal["websocket_sniffer"]
+    producer_instance: str
+    producer_version: str
+
+    class Config:
+        extra = "forbid"
+
+
+class DomainEventSubmission(BaseModel):
+    session_id: str
+    event: dict[str, Any]
+
+    class Config:
+        extra = "forbid"
 
 
 @dataclass
@@ -126,6 +152,108 @@ def create_app(
             "api_version": API_VERSION,
             "session": session,
         }
+
+    @app.post("/api/v1/sessions")
+    def register_session(request: SnifferSessionRegistration) -> Any:
+        if not request.session_id or not request.producer_instance:
+            return error_response(
+                status_code=400,
+                code="INVALID_SESSION",
+                message="Session identity fields are required.",
+            )
+        try:
+            session, duplicate = event_store.register_session(
+                session_id=request.session_id,
+                producer_version=request.producer_version,
+                source="websocket",
+                producer_type=request.producer_type,
+                producer_instance=request.producer_instance,
+                client_profile=client_profile.profile_id,
+                app_asar_hash=client_profile.actual_app_asar_sha256,
+                template_set_version=DOMAIN_TEMPLATE_SET_VERSION,
+                reference_width=0,
+                reference_height=0,
+            )
+        except SessionIdentityConflictError:
+            return error_response(
+                status_code=409,
+                code="SESSION_ID_CONFLICT",
+                message="The session ID is already registered differently.",
+                details={"session_id": request.session_id},
+            )
+        return JSONResponse(
+            status_code=200 if duplicate else 201,
+            content={
+                "api_version": API_VERSION,
+                "status": "existing" if duplicate else "registered",
+                "session": session,
+            },
+        )
+
+    @app.post("/api/v1/events")
+    def submit_event(request: DomainEventSubmission) -> Any:
+        session = event_store.get_session(request.session_id)
+        if session is None:
+            return error_response(
+                status_code=404,
+                code="SESSION_NOT_FOUND",
+                message="The producer session does not exist.",
+                details={"session_id": request.session_id},
+            )
+        if session["status"] != "running":
+            return error_response(
+                status_code=409,
+                code="SESSION_NOT_RUNNING",
+                message="The producer session is not running.",
+                details={"session_id": request.session_id},
+            )
+        if session["producer_type"] != "websocket_sniffer":
+            return error_response(
+                status_code=409,
+                code="SESSION_PRODUCER_MISMATCH",
+                message="Domain events require a websocket sniffer session.",
+                details={"session_id": request.session_id},
+            )
+        try:
+            durable = domain_event_to_durable_event(
+                request.event,
+                session_id=request.session_id,
+            )
+        except DomainEventValidationError as error:
+            return error_response(
+                status_code=400,
+                code="INVALID_DOMAIN_EVENT",
+                message=str(error),
+            )
+        try:
+            stored, duplicate = event_store.append_event_idempotent(durable)
+        except EventIdentityConflictError:
+            return error_response(
+                status_code=409,
+                code="EVENT_ID_CONFLICT",
+                message=(
+                    "The idempotency key already exists with different data."
+                ),
+                details={
+                    "session_id": request.session_id,
+                    "event_id": durable.event_id,
+                },
+            )
+        except SessionNotFoundError:
+            return error_response(
+                status_code=409,
+                code="SESSION_NOT_RUNNING",
+                message="The producer session stopped before commit.",
+                details={"session_id": request.session_id},
+            )
+        return JSONResponse(
+            status_code=200 if duplicate else 201,
+            content={
+                "api_version": API_VERSION,
+                "status": "duplicate" if duplicate else "accepted",
+                "event": stored.to_dict(),
+            },
+        )
 
     @app.get("/api/v1/events")
     def events(

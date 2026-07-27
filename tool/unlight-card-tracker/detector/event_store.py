@@ -12,7 +12,7 @@ from uuid import uuid4
 from event_schema import ObservationEvent, utc_now_iso
 
 
-SQLITE_SCHEMA_VERSION = 1
+SQLITE_SCHEMA_VERSION = 2
 
 
 class EventStoreError(RuntimeError):
@@ -39,6 +39,14 @@ class SequenceGapError(EventStoreError):
         super().__init__("event sequence contains a gap")
         self.expected_sequence = expected_sequence
         self.actual_sequence = actual_sequence
+
+
+class EventIdentityConflictError(EventStoreError):
+    pass
+
+
+class SessionIdentityConflictError(EventStoreError):
+    pass
 
 
 def default_database_path() -> Path:
@@ -100,13 +108,15 @@ class EventStore:
                 WHERE key = 'sqlite_schema_version'
                 """
             ).fetchone()
-            if (
-                version_row is not None
-                and int(version_row["value"]) != SQLITE_SCHEMA_VERSION
-            ):
+            existing_version = (
+                int(version_row["value"])
+                if version_row is not None
+                else SQLITE_SCHEMA_VERSION
+            )
+            if existing_version not in {1, SQLITE_SCHEMA_VERSION}:
                 raise EventStoreError(
                     "unsupported sqlite_schema_version: "
-                    f"{version_row['value']}"
+                    f"{existing_version}"
                 )
 
             connection.executescript(
@@ -130,7 +140,13 @@ class EventStore:
                     app_asar_hash TEXT,
                     template_set_version TEXT NOT NULL,
                     reference_width INTEGER NOT NULL,
-                    reference_height INTEGER NOT NULL
+                    reference_height INTEGER NOT NULL,
+                    producer_type TEXT NOT NULL DEFAULT 'detector'
+                        CHECK(producer_type IN (
+                            'detector',
+                            'websocket_sniffer'
+                        )),
+                    producer_instance TEXT NOT NULL DEFAULT 'screen'
                 );
 
                 CREATE TABLE IF NOT EXISTS events (
@@ -158,11 +174,38 @@ class EventStore:
                     ON events(session_id, sequence);
                 """
             )
+            if existing_version == 1:
+                columns = {
+                    row["name"]
+                    for row in connection.execute(
+                        "PRAGMA table_info(sessions)"
+                    ).fetchall()
+                }
+                if "producer_type" not in columns:
+                    connection.execute(
+                        """
+                        ALTER TABLE sessions
+                        ADD COLUMN producer_type TEXT NOT NULL
+                            DEFAULT 'detector'
+                            CHECK(producer_type IN (
+                                'detector',
+                                'websocket_sniffer'
+                            ))
+                        """
+                    )
+                if "producer_instance" not in columns:
+                    connection.execute(
+                        """
+                        ALTER TABLE sessions
+                        ADD COLUMN producer_instance TEXT NOT NULL
+                            DEFAULT 'screen'
+                        """
+                    )
             connection.execute(
                 """
                 INSERT INTO schema_metadata(key, value)
                 VALUES('sqlite_schema_version', ?)
-                ON CONFLICT(key) DO NOTHING
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
                 """,
                 (str(SQLITE_SCHEMA_VERSION),),
             )
@@ -189,6 +232,7 @@ class EventStore:
                 UPDATE sessions
                 SET status = 'aborted', ended_at = ?
                 WHERE status = 'running'
+                    AND producer_type = 'detector'
                 """,
                 (started_at,),
             )
@@ -205,9 +249,14 @@ class EventStore:
                     app_asar_hash,
                     template_set_version,
                     reference_width,
-                    reference_height
+                    reference_height,
+                    producer_type,
+                    producer_instance
                 )
-                VALUES(?, ?, NULL, ?, ?, 'running', ?, ?, ?, ?, ?)
+                VALUES(
+                    ?, ?, NULL, ?, ?, 'running', ?, ?, ?, ?, ?,
+                    'detector', 'screen'
+                )
                 """,
                 (
                     session_id,
@@ -226,6 +275,86 @@ class EventStore:
         session = self.get_session(session_id)
         assert session is not None
         return session
+
+    def register_session(
+        self,
+        *,
+        session_id: str,
+        producer_version: str,
+        source: str,
+        producer_type: str,
+        producer_instance: str,
+        client_profile: str,
+        app_asar_hash: str | None,
+        template_set_version: str,
+        reference_width: int,
+        reference_height: int,
+    ) -> tuple[dict[str, Any], bool]:
+        """Register a caller-owned producer session without aborting peers."""
+        if not session_id:
+            raise ValueError("session_id is required")
+        if producer_type != "websocket_sniffer":
+            raise ValueError("unsupported caller-owned producer_type")
+        if not producer_instance:
+            raise ValueError("producer_instance is required")
+        self.initialize()
+        started_at = utc_now_iso()
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                "SELECT * FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if existing is not None:
+                existing_dict = dict(existing)
+                if (
+                    existing_dict["producer_type"] == producer_type
+                    and existing_dict["producer_instance"]
+                    == producer_instance
+                    and existing_dict["producer_version"]
+                    == producer_version
+                    and existing_dict["status"] == "running"
+                ):
+                    return existing_dict, True
+                raise SessionIdentityConflictError(session_id)
+            connection.execute(
+                """
+                INSERT INTO sessions(
+                    session_id,
+                    started_at,
+                    ended_at,
+                    producer_version,
+                    source,
+                    status,
+                    client_profile,
+                    app_asar_hash,
+                    template_set_version,
+                    reference_width,
+                    reference_height,
+                    producer_type,
+                    producer_instance
+                )
+                VALUES(
+                    ?, ?, NULL, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?
+                )
+                """,
+                (
+                    session_id,
+                    started_at,
+                    producer_version,
+                    source,
+                    client_profile,
+                    app_asar_hash,
+                    template_set_version,
+                    reference_width,
+                    reference_height,
+                    producer_type,
+                    producer_instance,
+                ),
+            )
+        session = self.get_session(session_id)
+        assert session is not None
+        return session, False
 
     def finish_session(
         self,
@@ -263,6 +392,7 @@ class EventStore:
                 SELECT *
                 FROM sessions
                 WHERE status = 'running'
+                    AND producer_type = 'detector'
                 ORDER BY started_at DESC
                 LIMIT 1
                 """
@@ -342,6 +472,107 @@ class EventStore:
             connection.commit()
 
         return replace(event, sequence=int(next_sequence))
+
+    def append_event_idempotent(
+        self,
+        event: ObservationEvent,
+    ) -> tuple[ObservationEvent, bool]:
+        """Append once, returning duplicate=True for identical retries."""
+        if event.sequence is not None:
+            raise ValueError("sequence must be allocated by EventStore")
+        payload_json = json.dumps(
+            event.payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            session = connection.execute(
+                """
+                SELECT status
+                FROM sessions
+                WHERE session_id = ?
+                """,
+                (event.session_id,),
+            ).fetchone()
+            if session is None or session["status"] != "running":
+                raise SessionNotFoundError(event.session_id)
+
+            existing = connection.execute(
+                """
+                SELECT *
+                FROM events
+                WHERE session_id = ? AND event_id = ?
+                """,
+                (event.session_id, event.event_id),
+            ).fetchone()
+            if existing is not None:
+                stored = self._event_row_to_dict(existing)
+                comparable = {
+                    "event_id": event.event_id,
+                    "session_id": event.session_id,
+                    "event_type": event.event_type,
+                    "payload": event.payload,
+                    "confidence": event.confidence,
+                    "occurred_at": event.occurred_at,
+                    "source": event.source,
+                    "event_schema_version": event.event_schema_version,
+                    "producer_version": event.producer_version,
+                    "template_set_version": event.template_set_version,
+                }
+                stored_comparable = {
+                    key: stored[key] for key in comparable
+                }
+                if stored_comparable != comparable:
+                    raise EventIdentityConflictError(event.event_id)
+                return replace(
+                    event,
+                    sequence=int(existing["sequence"]),
+                ), True
+
+            next_sequence = connection.execute(
+                """
+                SELECT COALESCE(MAX(sequence), 0) + 1
+                FROM events
+                WHERE session_id = ?
+                """,
+                (event.session_id,),
+            ).fetchone()[0]
+            connection.execute(
+                """
+                INSERT INTO events(
+                    event_id,
+                    session_id,
+                    sequence,
+                    event_type,
+                    payload_json,
+                    confidence,
+                    occurred_at,
+                    source,
+                    event_schema_version,
+                    producer_version,
+                    template_set_version,
+                    created_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event.event_id,
+                    event.session_id,
+                    next_sequence,
+                    event.event_type,
+                    payload_json,
+                    event.confidence,
+                    event.occurred_at,
+                    event.source,
+                    event.event_schema_version,
+                    event.producer_version,
+                    event.template_set_version,
+                    utc_now_iso(),
+                ),
+            )
+        return replace(event, sequence=int(next_sequence)), False
 
     def read_events(
         self,

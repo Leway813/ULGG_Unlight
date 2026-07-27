@@ -138,6 +138,26 @@ class RecordingSafeStream:
         }
 
 
+class RecordingTrackerClient:
+    def __init__(self, results=None):
+        self.results = list(results or [])
+        self.events = []
+
+    def submit_event(self, event):
+        self.events.append(deepcopy(event))
+        if self.results:
+            result = self.results.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return deepcopy(result)
+        return {
+            "ok": True,
+            "duplicate": False,
+            "status": "accepted",
+            "code": None,
+        }
+
+
 class SnifferBattleRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -603,6 +623,205 @@ class SnifferBattleRuntimeTests(unittest.TestCase):
         with self.assertRaises(OSError):
             sniffer.handle_frame(frame("gameStart"), "received")
         self.assertEqual(processor.observations, [])
+
+    def test_no_tracker_url_keeps_api_disabled(self):
+        sniffer = self.make_sniffer(
+            process_battle_state=True,
+            producer_session_id="no-api",
+        )
+        self.assertFalse(
+            sniffer.battle_processor_summary()["api_enabled"]
+        )
+
+    def test_api_receives_processor_session_and_domain_event(self):
+        api = RecordingTrackerClient()
+        sniffer = self.make_sniffer(
+            process_battle_state=True,
+            producer_session_id="api-session",
+            tracker_event_client=api,
+        )
+        sniffer._process_battle_observation(
+            observation("battle_started")
+        )
+        self.assertEqual(len(api.events), 1)
+        self.assertEqual(
+            api.events[0]["producer_session_id"],
+            "api-session",
+        )
+
+    def test_non_required_api_failure_continues_local_processing(self):
+        api = RecordingTrackerClient(
+            [
+                {"ok": False, "code": "CONNECTION_ERROR"},
+                {"ok": True, "duplicate": False},
+            ]
+        )
+        sniffer = self.make_sniffer(
+            process_battle_state=True,
+            producer_session_id="optional-api",
+            tracker_event_client=api,
+        )
+        sniffer._process_battle_observation(
+            observation("battle_started")
+        )
+        sniffer._process_battle_observation(
+            observation(
+                "card_drawn",
+                sequence=2,
+                payload={"card": card()},
+                visibility="self_private",
+            )
+        )
+        summary = sniffer.battle_processor_summary()
+        self.assertEqual(summary["api_errors"], 1)
+        self.assertEqual(summary["api_events_attempted"], 2)
+        self.assertEqual(summary["self_hand_count"], 1)
+        self.assertTrue(summary["api_diverged"])
+
+    def test_required_api_failure_stops_later_processing(self):
+        api = RecordingTrackerClient(
+            [{"ok": False, "code": "HTTP_400"}]
+        )
+        sniffer = self.make_sniffer(
+            process_battle_state=True,
+            producer_session_id="required-api",
+            tracker_event_client=api,
+            tracker_api_required=True,
+        )
+        sniffer._process_battle_observation(
+            observation("battle_started")
+        )
+        second = sniffer._process_battle_observation(
+            observation(
+                "card_drawn",
+                sequence=2,
+                payload={"card": card()},
+                visibility="self_private",
+            )
+        )
+        self.assertIsNone(second)
+        self.assertEqual(len(api.events), 1)
+        self.assertEqual(
+            sniffer.battle_processor_summary()["self_hand_count"],
+            0,
+        )
+
+    def test_api_submission_preserves_domain_event_order(self):
+        api = RecordingTrackerClient()
+        sniffer = self.make_sniffer(
+            process_battle_state=True,
+            producer_session_id="ordered-api",
+            tracker_event_client=api,
+        )
+        events = [
+            {"event_type": "first", "source_sequence": 1},
+            {"event_type": "second", "source_sequence": 1},
+        ]
+        sniffer._submit_domain_events(events)
+        self.assertEqual(
+            [event["event_type"] for event in api.events],
+            ["first", "second"],
+        )
+
+    def test_api_failure_stops_remaining_events_in_frame(self):
+        api = RecordingTrackerClient(
+            [{"ok": False, "code": "HTTP_503"}]
+        )
+        sniffer = self.make_sniffer(
+            process_battle_state=True,
+            producer_session_id="partial-api",
+            tracker_event_client=api,
+        )
+        sniffer._submit_domain_events(
+            [
+                {"event_type": "first", "source_sequence": 1},
+                {"event_type": "second", "source_sequence": 1},
+            ]
+        )
+        summary = sniffer.battle_processor_summary()
+        self.assertEqual(len(api.events), 1)
+        self.assertTrue(summary["api_diverged"])
+        self.assertEqual(summary["api_last_error_code"], "HTTP_503")
+
+    def test_api_duplicate_updates_summary(self):
+        api = RecordingTrackerClient(
+            [{"ok": True, "duplicate": True}]
+        )
+        sniffer = self.make_sniffer(
+            process_battle_state=True,
+            producer_session_id="duplicate-api",
+            tracker_event_client=api,
+        )
+        sniffer._submit_domain_events(
+            [{"event_type": "battle.started", "source_sequence": 1}]
+        )
+        summary = sniffer.battle_processor_summary()
+        self.assertEqual(summary["api_duplicates"], 1)
+        self.assertEqual(summary["api_events_accepted"], 0)
+
+    def test_api_summary_does_not_include_url_or_payload(self):
+        api = RecordingTrackerClient()
+        sniffer = self.make_sniffer(
+            process_battle_state=True,
+            producer_session_id="safe-api-summary",
+            tracker_event_client=api,
+        )
+        summary = json.dumps(
+            sniffer.battle_processor_summary(),
+            ensure_ascii=False,
+        )
+        self.assertNotIn("http://", summary)
+        self.assertNotIn("payload", summary)
+
+    def test_api_failure_does_not_remove_safe_jsonl_observation(self):
+        api = RecordingTrackerClient(
+            [{"ok": False, "code": "CONNECTION_ERROR"}]
+        )
+        sniffer = self.make_sniffer(
+            battle_observations=True,
+            process_battle_state=True,
+            producer_session_id="writer-survives-api",
+            tracker_event_client=api,
+        )
+        sniffer.handle_frame(frame("gameStart"), "received")
+        rows = (
+            Path(self.temp_dir.name) / "battle-observations.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(json.loads(rows[0])["type"], "battle_started")
+        self.assertTrue(
+            sniffer.battle_processor_summary()["api_diverged"]
+        )
+
+    def test_tracker_api_cli_requires_processor_and_url(self):
+        parser = build_argument_parser()
+        with self.assertRaises(SystemExit):
+            validate_runtime_arguments(
+                parser,
+                parser.parse_args(
+                    ["--tracker-api-url", "http://127.0.0.1:8765"]
+                ),
+            )
+        with self.assertRaises(SystemExit):
+            validate_runtime_arguments(
+                parser,
+                parser.parse_args(["--tracker-api-required"]),
+            )
+
+    def test_tracker_api_cli_defaults(self):
+        parser = build_argument_parser()
+        args = validate_runtime_arguments(
+            parser,
+            parser.parse_args(
+                [
+                    "--process-battle-state",
+                    "--tracker-api-url",
+                    "http://127.0.0.1:8765",
+                ]
+            ),
+        )
+        self.assertEqual(args.tracker_api_timeout, 2.0)
+        self.assertFalse(args.tracker_api_required)
 
     def test_processor_failure_keeps_written_observation_explainable(self):
         output = []

@@ -166,6 +166,111 @@ class ServerApiTest(unittest.TestCase):
         self.assertEqual(error["details"]["expected_sequence"], 2)
         self.assertEqual(error["details"]["actual_sequence"], 3)
 
+    @staticmethod
+    def domain_event(session_id, sequence=1):
+        return {
+            "domain_event_schema_version": 1,
+            "event_type": "battle.started",
+            "payload": {},
+            "source": "websocket",
+            "source_event": "gameStart",
+            "source_sequence": sequence,
+            "source_observation_index": 0,
+            "source_direction": "received",
+            "idempotency_key": f"ws:{sequence}:0:battle.started",
+            "occurred_at": "2026-07-28T12:00:00+08:00",
+            "protocol_side": "unknown",
+            "resolved_side": "unknown",
+            "visibility": "public",
+            "confirmation": "confirmed",
+            "confidence": 1.0,
+            "authority": "authoritative",
+            "producer_session_id": session_id,
+        }
+
+    def register_sniffer(self, session_id, instance):
+        return self.client.post(
+            "/api/v1/sessions",
+            json={
+                "session_id": session_id,
+                "producer_type": "websocket_sniffer",
+                "producer_instance": instance,
+                "producer_version": "0.1.0",
+            },
+        )
+
+    def test_sniffer_registration_keeps_detector_current(self) -> None:
+        chrome = self.register_sniffer("chrome-session", "chrome")
+        electron = self.register_sniffer("electron-session", "electron")
+        current = self.client.get("/api/v1/sessions/current")
+        self.assertEqual(chrome.status_code, 201)
+        self.assertEqual(electron.status_code, 201)
+        self.assertEqual(
+            current.json()["session"]["session_id"],
+            self.session["session_id"],
+        )
+        self.assertEqual(
+            self.store.get_session("chrome-session")["status"],
+            "running",
+        )
+        self.assertEqual(
+            self.store.get_session("electron-session")["status"],
+            "running",
+        )
+
+    def test_domain_event_post_is_idempotent_and_cursor_ordered(self) -> None:
+        self.register_sniffer("chrome-session", "chrome")
+        event = self.domain_event("chrome-session")
+        first = self.client.post(
+            "/api/v1/events",
+            json={"session_id": "chrome-session", "event": event},
+        )
+        duplicate = self.client.post(
+            "/api/v1/events",
+            json={"session_id": "chrome-session", "event": event},
+        )
+        second_event = self.domain_event("chrome-session", sequence=2)
+        second = self.client.post(
+            "/api/v1/events",
+            json={
+                "session_id": "chrome-session",
+                "event": second_event,
+            },
+        )
+        page = self.client.get(
+            "/api/v1/events",
+            params={
+                "session_id": "chrome-session",
+                "after_sequence": 0,
+            },
+        ).json()
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(duplicate.status_code, 200)
+        self.assertEqual(duplicate.json()["status"], "duplicate")
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(
+            [item["sequence"] for item in page["events"]],
+            [1, 2],
+        )
+        self.assertEqual(page["next_sequence"], 2)
+        self.assertEqual(
+            page["events"][0]["payload"]["domain_event"],
+            event,
+        )
+
+    def test_domain_event_rejects_session_mismatch(self) -> None:
+        self.register_sniffer("chrome-session", "chrome")
+        event = self.domain_event("different-session")
+        response = self.client.post(
+            "/api/v1/events",
+            json={"session_id": "chrome-session", "event": event},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["error"]["code"],
+            "INVALID_DOMAIN_EVENT",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
