@@ -33,10 +33,12 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from uuid import uuid4
 
 import requests
 import websockets
 from battle_observation_stream import BattleObservationStream
+from battle_stream_processor import BattleStreamProcessor
 
 
 DEBUG_PORT = 9333
@@ -166,6 +168,31 @@ DIRECTION_ALIASES = {
     "←收到": "received",
     "→送出": "sent",
 }
+
+_BATTLE_PROCESSOR_ERROR_CODES = frozenset(
+    {
+        "adapter_error",
+        "confirmation_mismatch",
+        "invalid_current_state",
+        "invalid_domain_event",
+        "invalid_payload",
+        "reducer_error",
+        "restricted_visibility",
+        "unsupported_authority",
+        "unsupported_source",
+    }
+)
+_BATTLE_PROCESSOR_WARNING_CODES = frozenset(
+    {
+        "conflict_resolved",
+        "duplicated_event",
+        "event_before_battle_start",
+        "late_event_after_finish",
+        "pending_selection_phase_unknown",
+        "stream_started_mid_battle",
+        "unknown_side_reveal",
+    }
+)
 
 
 def current_timestamp():
@@ -540,6 +567,174 @@ def summarize_unparsed_payload(payload_data, kind="malformed_text"):
     }
 
 
+def create_producer_session_id():
+    """Create one caller-owned producer generation for a sniffer runtime."""
+    return str(uuid4())
+
+
+def short_session_id(session_id):
+    """Return a console-safe short producer session identifier."""
+    text = str(session_id or "")
+    if len(text) <= 12:
+        return text
+    return f"{text[:4]}...{text[-4:]}"
+
+
+def _format_card_face(face):
+    if not isinstance(face, dict):
+        return "unknown"
+    return f"{face.get('kind', 'unknown')}{face.get('value', '?')}"
+
+
+def format_battle_card(card, confirmation=None):
+    """Format only the allowlisted, human-verifiable card projection."""
+    if not isinstance(card, dict):
+        return "card=invalid"
+    confirmed = (
+        confirmation
+        if isinstance(confirmation, str)
+        else card.get("display_order_confirmation")
+    )
+    return (
+        f"slot={card.get('slot')} "
+        f"top={_format_card_face(card.get('display_top'))} "
+        f"bottom={_format_card_face(card.get('display_bottom'))} "
+        f"rotate={card.get('rotate')} "
+        f"confirmation={confirmed}"
+    )
+
+
+def _important_battle_event_lines(event, state=None):
+    if not isinstance(event, dict):
+        return []
+    event_type = event.get("event_type")
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        payload = {}
+    confirmation = event.get("confirmation")
+
+    if event_type == "battle.started":
+        return ["[BATTLE] started"]
+    if event_type == "hand.cards_dealt":
+        cards = payload.get("cards")
+        cards = cards if isinstance(cards, list) else []
+        lines = [f"[HAND] dealt {len(cards)} cards"]
+        lines.extend(
+            f"[HAND] {format_battle_card(card, confirmation)}"
+            for card in cards
+        )
+        return lines
+    if event_type in {"hand.card_drawn", "hand.event_card_received"}:
+        card = payload.get("card")
+        action = (
+            "drew"
+            if event_type == "hand.card_drawn"
+            else "received event card"
+        )
+        return [f"[HAND] {action}: {format_battle_card(card, confirmation)}"]
+    if event_type == "play.selection_changed":
+        action = "selected" if payload.get("selected") else "returned"
+        return [f"[PLAY][SELF] {action} slot {payload.get('slot')}"]
+    if event_type == "play.cards_revealed":
+        side = str(event.get("resolved_side") or "unknown").upper()
+        cards = payload.get("cards")
+        cards = cards if isinstance(cards, list) else []
+        return [
+            f"[PLAY][{side}] revealed "
+            f"{format_battle_card(card, confirmation)}"
+            for card in cards
+        ]
+    if event_type == "battle.phase_ended":
+        return [f"[PHASE] {payload.get('phase')} ended"]
+    if event_type == "battle.turn_ended":
+        turn = payload.get("turn")
+        if turn is None and isinstance(state, dict):
+            turn = state.get("turn")
+        return [f"[TURN] {turn} ended"]
+    if event_type == "battle.finished":
+        return [f"[BATTLE] finished: {payload.get('outcome')}"]
+    return []
+
+
+def format_battle_runtime_result(observation, result, level="important"):
+    """Format a processor result without exposing raw or restricted payloads."""
+    if level not in {"quiet", "important", "debug"}:
+        raise ValueError("unsupported battle console level")
+    if not isinstance(result, dict):
+        result = {}
+
+    lines = []
+    domain_events = result.get("domain_events")
+    domain_events = domain_events if isinstance(domain_events, list) else []
+    diagnostics = result.get("diagnostics")
+    diagnostics = diagnostics if isinstance(diagnostics, list) else []
+    state = result.get("state")
+    state = state if isinstance(state, dict) else {}
+
+    if level != "quiet":
+        for event in domain_events:
+            event_lines = _important_battle_event_lines(event, state)
+            if event_lines:
+                lines.extend(event_lines)
+            elif level == "debug" and isinstance(event, dict):
+                lines.append(
+                    "[BATTLE DEBUG] "
+                    f"domain_event={event.get('event_type')} "
+                    f"sequence={event.get('source_sequence')}"
+                )
+
+    for diagnostic in diagnostics:
+        if not isinstance(diagnostic, dict):
+            continue
+        code = diagnostic.get("code")
+        if code in _BATTLE_PROCESSOR_ERROR_CODES:
+            prefix = "[BATTLE ERROR]"
+        elif code in _BATTLE_PROCESSOR_WARNING_CODES:
+            prefix = "[BATTLE WARN]"
+        elif level == "debug":
+            prefix = "[BATTLE DEBUG]"
+        else:
+            continue
+        lines.append(
+            f"{prefix} {code} "
+            f"event={diagnostic.get('event_type')} "
+            f"sequence={diagnostic.get('source_sequence')}"
+        )
+
+    unresolved_reveal = (
+        isinstance(observation, dict)
+        and observation.get("type") == "cards_revealed"
+        and observation.get("resolved_side") == "unknown"
+        and not domain_events
+    )
+    if unresolved_reveal:
+        lines.append(
+            "[BATTLE WARN] reveal ignored because local side is unresolved"
+        )
+
+    if level == "debug":
+        observation_type = (
+            observation.get("type")
+            if isinstance(observation, dict)
+            else None
+        )
+        sequence = (
+            observation.get("sequence")
+            if isinstance(observation, dict)
+            else None
+        )
+        lines.append(
+            "[BATTLE DEBUG] "
+            f"observation={observation_type} "
+            f"sequence={sequence} "
+            f"accepted={bool(result.get('accepted'))} "
+            f"state_changed={bool(result.get('state_changed'))} "
+            f"status={state.get('battle_status')} "
+            f"turn={state.get('turn')}"
+        )
+    return lines
+
+
 class ULSniffer:
     def __init__(
         self,
@@ -553,6 +748,12 @@ class ULSniffer:
         local_side=None,
         battle_mode="unknown",
         battle_observation_stream=None,
+        process_battle_state=False,
+        producer_session_id=None,
+        battle_start_mode="strict",
+        battle_console_level="important",
+        battle_processor=None,
+        console=print,
     ):
         self.port = port
         self.log_all = log_all
@@ -561,6 +762,19 @@ class ULSniffer:
         self.output_dir = Path(output_dir)
         self.enable_stdin_markers = enable_stdin_markers
         self.battle_observation_stream = battle_observation_stream
+        self.console = console
+        self.battle_processor = (
+            battle_processor if process_battle_state else None
+        )
+        self.battle_console_level = battle_console_level
+        self.producer_session_id = producer_session_id
+        self._battle_processor_stats = {
+            "observations_processed": 0,
+            "domain_events_emitted": 0,
+            "state_changes": 0,
+            "duplicate_events": 0,
+            "processor_errors": 0,
+        }
 
         self.msg_id = 0
         self.sequence = 0
@@ -585,11 +799,39 @@ class ULSniffer:
         if self.write_event_files:
             self.events_dir.mkdir(parents=True, exist_ok=True)
 
-        if self.battle_observation_stream is None and battle_observations:
+        if process_battle_state:
+            if (
+                not isinstance(producer_session_id, str)
+                or not producer_session_id
+            ):
+                raise ValueError(
+                    "producer_session_id is required when battle processing "
+                    "is enabled"
+                )
+            if self.battle_processor is None:
+                self.battle_processor = BattleStreamProcessor(
+                    producer_session_id,
+                    mode=battle_start_mode,
+                    local_side=local_side,
+                    console_level=battle_console_level,
+                )
+            elif (
+                self.battle_processor.producer_session_id
+                != producer_session_id
+            ):
+                raise ValueError(
+                    "battle processor producer_session_id mismatch"
+                )
+
+        if (
+            self.battle_observation_stream is None
+            and (battle_observations or process_battle_state)
+        ):
             self.battle_observation_stream = BattleObservationStream(
                 self.output_dir / "battle-observations.jsonl",
                 local_side=local_side,
                 battle_mode=battle_mode,
+                persist=battle_observations,
             )
 
         self.logfile = None
@@ -635,6 +877,15 @@ class ULSniffer:
                 )
 
                 print("[+] WebSocket observation discovery 執行中")
+                if self.battle_processor is not None:
+                    print(
+                        "    Battle processor session: "
+                        f"{short_session_id(self.producer_session_id)}"
+                    )
+                    print(
+                        "    [WARN] 多個 sniffer 不可共用輸出路徑："
+                        f"{self.output_dir.resolve()}"
+                    )
                 if self.enable_stdin_markers and sys.stdin.isatty():
                     print("    可輸入 MARK <label> 加入人工 observation marker")
                 print("    Ctrl+C 結束\n")
@@ -763,8 +1014,57 @@ class ULSniffer:
                 self._write_jsonl_unlocked(self.events_dir / filename, record)
             self._update_stats_unlocked(record, payload_size)
             if self.battle_observation_stream is not None:
-                self.battle_observation_stream.process(record)
+                observations = self.battle_observation_stream.process(record)
+                for observation in observations:
+                    result = self._process_battle_observation(observation)
+                    if self.battle_processor is not None and result is None:
+                        break
             return record
+
+    def _process_battle_observation(self, observation):
+        if self.battle_processor is None:
+            return None
+        stats = self._battle_processor_stats
+        stats["observations_processed"] += 1
+        try:
+            result = self.battle_processor.process(observation)
+        except Exception:
+            stats["processor_errors"] += 1
+            self.console(
+                "[BATTLE ERROR] processor_exception "
+                f"event={observation.get('type') if isinstance(observation, dict) else None} "
+                f"sequence={observation.get('sequence') if isinstance(observation, dict) else None}"
+            )
+            return None
+
+        domain_events = result.get("domain_events")
+        if isinstance(domain_events, list):
+            stats["domain_events_emitted"] += len(domain_events)
+        if result.get("state_changed"):
+            stats["state_changes"] += 1
+        diagnostics = result.get("diagnostics")
+        if isinstance(diagnostics, list):
+            stats["duplicate_events"] += sum(
+                1
+                for diagnostic in diagnostics
+                if isinstance(diagnostic, dict)
+                and diagnostic.get("code") == "duplicated_event"
+            )
+            if any(
+                isinstance(diagnostic, dict)
+                and diagnostic.get("code")
+                in _BATTLE_PROCESSOR_ERROR_CODES
+                for diagnostic in diagnostics
+            ):
+                stats["processor_errors"] += 1
+
+        for line in format_battle_runtime_result(
+            observation,
+            result,
+            self.battle_console_level,
+        ):
+            self.console(line)
+        return result
 
     def _write_packet_log(self, timestamp, direction, raw_payload, decoded, event):
         if not self.logfile:
@@ -1061,8 +1361,40 @@ class ULSniffer:
                 f"max_payload={stats['max_payload_size']}"
             )
 
+    def battle_processor_summary(self):
+        if self.battle_processor is None:
+            return None
+        state = self.battle_processor.snapshot()
+        return {
+            "producer_session_id": short_session_id(
+                self.producer_session_id
+            ),
+            **self._battle_processor_stats,
+            "battle_status": state.get("battle_status"),
+            "turn": state.get("turn"),
+            "self_hand_count": len(state.get("self_hand", [])),
+            "self_pending_count": len(
+                state.get("self_pending_selection", [])
+            ),
+            "self_revealed_count": len(
+                state.get("self_revealed_cards", [])
+            ),
+            "opponent_revealed_count": len(
+                state.get("opponent_revealed_cards", [])
+            ),
+            "outcome": state.get("outcome"),
+        }
+
+    def print_battle_processor_summary(self, summary):
+        if summary is None:
+            return
+        self.console("\n[+] Battle processor summary")
+        for key, value in summary.items():
+            self.console(f"    {key}: {value}")
+
     def close(self):
         battle_summary = None
+        processor_summary = None
         with self._record_lock:
             if self._closed:
                 return
@@ -1079,12 +1411,14 @@ class ULSniffer:
                 self.logfile.close()
             if self.battle_observation_stream is not None:
                 battle_summary = self.battle_observation_stream.close()
+            processor_summary = self.battle_processor_summary()
             self._closed = True
         self.print_event_summary(summary)
         if battle_summary is not None:
             print("\n[+] Battle observation summary")
             for key, value in battle_summary.items():
                 print(f"    {key}: {value}")
+        self.print_battle_processor_summary(processor_summary)
 
 
 def launch_game(port=DEBUG_PORT):
@@ -1152,12 +1486,44 @@ def build_argument_parser():
         choices=("pvp", "pve", "unknown"),
         default="unknown",
     )
+    parser.add_argument(
+        "--process-battle-state",
+        action="store_true",
+        help="將安全 battle observations 套用到記憶體 BattleState",
+    )
+    parser.add_argument(
+        "--battle-start-mode",
+        choices=("strict", "diagnostic-bootstrap"),
+        help="battle stream 起點策略；需搭配 --process-battle-state",
+    )
+    parser.add_argument(
+        "--battle-console-level",
+        choices=("quiet", "important", "debug"),
+        help="BattleState 終端摘要層級；需搭配 --process-battle-state",
+    )
     parser.add_argument("--port", type=int, default=DEBUG_PORT)
     return parser
 
 
+def validate_runtime_arguments(parser, args):
+    if not args.process_battle_state and (
+        args.battle_start_mode is not None
+        or args.battle_console_level is not None
+    ):
+        parser.error(
+            "--battle-start-mode and --battle-console-level require "
+            "--process-battle-state"
+        )
+    if args.battle_start_mode is None:
+        args.battle_start_mode = "strict"
+    if args.battle_console_level is None:
+        args.battle_console_level = "important"
+    return args
+
+
 def main():
-    args = build_argument_parser().parse_args()
+    parser = build_argument_parser()
+    args = validate_runtime_arguments(parser, parser.parse_args())
 
     if args.redact_existing is not None:
         print_redaction_stats(redact_existing_jsonl(args.redact_existing))
@@ -1174,6 +1540,11 @@ def main():
     if args.unsafe_raw_log:
         print("[!] UNSAFE RAW LOG 已啟用：packets.log 將包含未遮蔽資料")
 
+    producer_session_id = (
+        create_producer_session_id()
+        if args.process_battle_state
+        else None
+    )
     sniffer = ULSniffer(
         port=args.port,
         log_all=args.all or args.log or args.unsafe_raw_log,
@@ -1182,6 +1553,10 @@ def main():
         battle_observations=args.battle_observations,
         local_side=args.local_side,
         battle_mode=args.battle_mode,
+        process_battle_state=args.process_battle_state,
+        producer_session_id=producer_session_id,
+        battle_start_mode=args.battle_start_mode,
+        battle_console_level=args.battle_console_level,
     )
     try:
         asyncio.run(sniffer.run())

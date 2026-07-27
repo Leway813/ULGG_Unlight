@@ -94,10 +94,12 @@ class BattleObservationStream:
         *,
         local_side: str | None = None,
         battle_mode: str = "unknown",
+        persist: bool = True,
         parser: Callable[..., list[dict[str, Any]]] = parse_discovery_record,
         console: Callable[[str], None] = print,
     ):
         self.output_path = Path(output_path)
+        self.persist = persist
         self.context = SideResolutionContext(
             local_side=local_side,
             mode=battle_mode,
@@ -114,12 +116,14 @@ class BattleObservationStream:
             "unknown_events": 0,
         }
 
-        self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        self._file = self.output_path.open(
-            "a",
-            encoding="utf-8",
-            buffering=1,
-        )
+        self._file = None
+        if self.persist:
+            self.output_path.parent.mkdir(parents=True, exist_ok=True)
+            self._file = self.output_path.open(
+                "a",
+                encoding="utf-8",
+                buffering=1,
+            )
 
     def _safe_error(self, record: Any, reason: str) -> None:
         event_name = None
@@ -235,16 +239,17 @@ class BattleObservationStream:
                     self._record_parse_error(record, "unsafe_observation_schema")
                     continue
 
-                self._file.write(
-                    json.dumps(
-                        projected,
-                        ensure_ascii=False,
-                        separators=(",", ":"),
+                if self._file is not None:
+                    self._file.write(
+                        json.dumps(
+                            projected,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        )
+                        + "\n"
                     )
-                    + "\n"
-                )
-                self._file.flush()
-                self._stats["written"] += 1
+                    self._file.flush()
+                    self._stats["written"] += 1
                 written.append(projected)
             return written
 
@@ -254,13 +259,14 @@ class BattleObservationStream:
 
     def flush(self) -> None:
         with self._lock:
-            if not self._closed:
+            if not self._closed and self._file is not None:
                 self._file.flush()
 
     def close(self) -> dict[str, int]:
         with self._lock:
             if not self._closed:
-                self._file.flush()
-                self._file.close()
+                if self._file is not None:
+                    self._file.flush()
+                    self._file.close()
                 self._closed = True
             return dict(self._stats)
