@@ -51,7 +51,7 @@ SITE_DEBUG = False
 ROOT = Path(__file__).resolve().parent
 # 只輸出公牌牌堆數量診斷。
 # 不會開啟手牌／出牌候選的大量 DEBUG。
-PUBLIC_COUNT_DEBUG = False
+PUBLIC_COUNT_DEBUG = True
 
 REFERENCE_WIDTH = 848
 REFERENCE_HEIGHT = 760
@@ -4424,6 +4424,10 @@ def main() -> None:
             "FastAPI/Uvicorn startup timed out"
         )
 
+    print(
+        "Tracker UI："
+        f"http://127.0.0.1:{args.port}/tracker/"
+    )
     print(
         "Tracker API："
         f"http://127.0.0.1:{args.port}/api/v1/health"

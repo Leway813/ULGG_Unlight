@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from threading import Lock
 from typing import Any
 
 from fastapi import FastAPI, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+)
+from fastapi.staticfiles import StaticFiles
 
 from client_profile import ClientProfileStatus
 from event_store import (
@@ -21,6 +27,7 @@ DEFAULT_EVENT_LIMIT = 100
 MAX_EVENT_LIMIT = 1000
 WARNING_THRESHOLD_BYTES = 256 * 1024 * 1024
 CRITICAL_THRESHOLD_BYTES = 1024 * 1024 * 1024
+TRACKER_ROOT = Path(__file__).resolve().parent.parent
 
 
 @dataclass
@@ -173,5 +180,53 @@ def create_app(
             "api_version": API_VERSION,
             **page,
         }
+
+    @app.get(
+        "/",
+        include_in_schema=False,
+    )
+    def tracker_root_redirect() -> RedirectResponse:
+        return RedirectResponse(
+            url="/tracker/",
+            status_code=302,
+        )
+
+    @app.get(
+        "/tracker/",
+        include_in_schema=False,
+    )
+    def tracker_index() -> FileResponse:
+        return FileResponse(
+            TRACKER_ROOT / "control.html",
+            media_type="text/html",
+        )
+
+    @app.get(
+        "/tracker/field-decks.js",
+        include_in_schema=False,
+    )
+    def tracker_field_decks() -> FileResponse:
+        return FileResponse(
+            TRACKER_ROOT / "field-decks.js",
+            media_type="text/javascript",
+        )
+
+    @app.get(
+        "/tracker/tracker.js",
+        include_in_schema=False,
+    )
+    def tracker_script() -> FileResponse:
+        return FileResponse(
+            TRACKER_ROOT / "tracker.js",
+            media_type="text/javascript",
+        )
+
+    app.mount(
+        "/tracker/assets",
+        StaticFiles(
+            directory=str(TRACKER_ROOT / "assets"),
+        ),
+        name="tracker-assets",
+    )
 
     return app

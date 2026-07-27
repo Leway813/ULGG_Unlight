@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="zh-Hant">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Unlight 公牌庫追蹤器</title>
+
+  <style>
+    :root {
+      --bg: #0f131a;
+      --panel: #1a202b;
+      --panel2: #232b39;
+      --line: #344055;
+      --text: #f4f6f8;
+      --muted: #9ba7b8;
+      --blue: #3b82f6;
+      --red: #b84a4a;
+      --green: #2f8f63;
+      --gold: #a97720;
+      --purple: #7557c9;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: linear-gradient(#0b0f15, #141a24);
+      color: var(--text);
+      font-family: "Segoe UI", "Noto Sans TC", sans-serif;
+    }
+
+    button,
+    select {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      border-radius: 9px;
+      padding: 10px 14px;
+      background: #2f394b;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    button:hover {
+      filter: brightness(1.12);
+    }
+
+    button:disabled {
+      opacity: .4;
+      cursor: default;
+    }
+
+    button.danger {
+      background: var(--red);
+    }
+
+    button.shuffle {
+      background: var(--purple);
+    }
+
+    .app {
+      max-width: 1600px;
+      margin: auto;
+      padding: 10px;
+    }
+
+    
+
+    .control-bar {
+      display: grid;
+      grid-template-columns:
+        minmax(220px, 1.2fr) minmax(480px, 2.8fr) auto;
+      gap: 8px;
+      align-items: stretch;
+      margin-bottom: 10px;
+    }
+
+    .field-box,
+    .compact-summary,
+    .control-bar .actions {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 8px 20px #0004;
+    }
+
+    .field-box {
+      padding: 6px 9px;
+    }
+
+    .field-box label {
+      margin-bottom: 3px;
+      font-size: 11px;
+    }
+
+    .field-box select {
+      padding: 7px 9px;
+    }
+
+    .compact-summary {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(74px, 1fr));
+      overflow: hidden;
+    }
+
+    .compact-stat {
+      min-width: 0;
+      padding: 6px 10px;
+      text-align: center;
+      border-right: 1px solid var(--line);
+    }
+
+    .compact-stat:last-child {
+      border-right: 0;
+    }
+
+    .compact-stat small {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .compact-stat strong {
+      display: block;
+      margin-top: 1px;
+      font-size: 21px;
+      line-height: 1.1;
+    }
+
+    .control-bar .actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px;
+    }
+
+    .control-bar .actions button {
+      padding: 8px 11px;
+      white-space: nowrap;
+    }
+
+    .box,
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 10px 28px #0005;
+    }
+
+    .box {
+      padding: 8px 10px;
+    }
+
+    label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    select {
+      width: 100%;
+      padding: 10px;
+      border-radius: 9px;
+      border: 1px solid var(--line);
+      background: #0f141d;
+      color: white;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+
+
+
+    
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 12px;
+    }
+
+    .panel {
+      padding: 10px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    h2 {
+      font-size: 18px;
+      margin: 0;
+    }
+
+    .hint,
+    .empty,
+    .note {
+      color: var(--muted);
+    }
+
+    .hint {
+      font-size: 12px;
+      text-align: right;
+    }
+
+    .note {
+      font-size: 12px;
+      line-height: 1.5;
+      margin-top: 10px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 8px;
+    }
+
+    .zone-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 8px;
+      min-height: 100px;
+    }
+
+    .zone-empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 96px;
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      color: var(--muted);
+      background: #111720;
+    }
+
+    .card {
+      text-align: left;
+      background: var(--panel2);
+      border: 1px solid var(--line);
+      min-height: 76px;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    .card.low {
+      background: #2a2417;
+      border-color: #8a6b2a;
+    }
+
+    .card.zero {
+      opacity: .45;
+      text-decoration: line-through;
+      background: #171b22;
+    }
+
+    .card.in-hand {
+      border-color: var(--green);
+      box-shadow: inset 0 0 0 1px #2f8f6388;
+    }
+
+    .card.enemy-candidate {
+      border-color: var(--gold);
+      box-shadow: inset 0 0 0 1px #a9772088;
+    }
+
+    .game-card-button {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 112px;
+      padding: 10px;
+    }
+
+    .compact-card {
+      min-height: 102px;
+      padding: 8px;
+      gap: 8px;
+    }
+
+    .game-card-preview {
+      flex: 0 0 56px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .game-card {
+      position: relative;
+      width: 54px;
+      height: 84px;
+      overflow: hidden;
+      background: #050505;
+      border: 1px solid #000;
+      box-shadow:
+        0 0 0 1px #777,
+        0 4px 10px rgba(0, 0, 0, 0.55);
+      image-rendering: pixelated;
+    }
+
+    .game-card-half {
+      position: absolute;
+      left: 0;
+      width: 54px;
+      height: 42px;
+      overflow: hidden;
+    }
+
+    .game-card-top {
+      top: 0;
+    }
+
+    .game-card-bottom {
+      bottom: 0;
+      transform: rotate(180deg);
+    }
+
+    .game-card-half img {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 54px;
+      height: 84px;
+      max-width: none;
+      object-fit: fill;
+      image-rendering: pixelated;
+    }
+
+    .game-card-divider {
+      position: absolute;
+      top: 41px;
+      left: 1px;
+      right: 1px;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.65);
+      border-top: 1px solid #000;
+      border-bottom: 1px solid #000;
+      z-index: 10;
+    }
+
+    .game-card-value {
+      position: absolute;
+      top: 11px;
+      left: 7px;
+      z-index: 6;
+      color: #fff;
+      font-family: Impact, "Arial Black", sans-serif;
+      font-size: 18px;
+      line-height: 1;
+      text-shadow:
+        -1px -1px 0 #000,
+        1px -1px 0 #000,
+        -1px 1px 0 #000,
+        1px 1px 0 #000,
+        0 2px 1px #000;
+    }
+
+    .game-card-info {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .game-card-info .n {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .game-card-info .c {
+      font-size: 23px;
+      font-weight: 800;
+    }
+
+    .compact-card .game-card-info .n {
+      font-size: 13px;
+    }
+
+    .compact-card .game-card-info .c {
+      font-size: 19px;
+    }
+
+    .game-card-info .m {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 3px;
+    }
+
+    .game-card-info .m {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .game-card-info .m .meta-label,
+    .game-card-info .m .meta-value {
+      display: block;
+      white-space: nowrap;
+    }
+
+    .game-card-info .m .meta-value {
+      margin-top: 2px;
+    }
+
+
+    .game-card-fallback {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 54px;
+      height: 84px;
+      background: #222;
+      border: 1px solid #777;
+      font-size: 11px;
+    }
+
+    .type-buttons {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 7px;
+    }
+
+    .type-button {
+      padding: 9px 6px;
+      border: 1px solid var(--line);
+      background: #202838;
+      text-align: center;
+    }
+
+    .type-button strong,
+    .type-button span {
+      display: block;
+    }
+
+    .type-button strong {
+      font-size: 18px;
+    }
+
+    .type-button span {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .type-button.active {
+      background: var(--blue);
+      border-color: #8ebcff;
+    }
+
+    .type-button.active span {
+      color: #fff;
+    }
+
+    .history {
+      max-height: 540px;
+      overflow: auto;
+      display: grid;
+      gap: 7px;
+    }
+
+    .hist {
+      background: var(--panel2);
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 8px;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .hist small {
+      color: var(--muted);
+    }
+
+    @media(max-width:950px) {
+      .top {
+        grid-template-columns: 1fr;
+      }
+
+      .summary {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .type-buttons {
+        grid-template-columns: repeat(5, minmax(54px, 1fr));
+      }
+    }
+
+    @media(max-width:560px) {
+      .summary {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .head {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .hint {
+        text-align: left;
+      }
+
+      .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .zone-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    .type-panel {
+      padding: 12px 10px;
+      align-self: start;
+    }
+
+    .type-panel .head {
+      margin-bottom: 4px;
+    }
+
+    .type-panel .type-buttons {
+      gap: 4px;
+    }
+
+    .type-panel .type-button {
+      padding: 4px 3px;
+    }
+
+    .type-panel .type-button strong {
+      font-size: 16px;
+    }
+
+    .type-panel .type-button span {
+      margin-top: 1px;
+      font-size: 11px;
+    }
+
+    .type-panel .note {
+      margin-top: 12px;
+      line-height: 1.25;
+    }
+
+    .sidebar-stack {
+      align-content: start;
+      grid-auto-rows: max-content;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <div class="control-bar">
+      <div class="field-box">
+        <label for="field">場地</label>
+        <select id="field"></select>
+      </div>
+
+      <div class="compact-summary">
+        <div class="compact-stat">
+          <small>初始牌庫</small>
+          <strong id="initial">0</strong>
+        </div>
+
+        <div class="compact-stat">
+          <small>公牌剩餘</small>
+          <strong id="deckLeft">0</strong>
+        </div>
+
+        <div class="compact-stat">
+          <small>我方手牌</small>
+          <strong id="myHandCount">0</strong>
+        </div>
+
+        <div class="compact-stat">
+          <small>敵方候選</small>
+          <strong id="enemyCandidateCount">0</strong>
+        </div>
+
+        <div class="compact-stat">
+          <small>已公開</small>
+          <strong id="seen">0</strong>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="undo">復原</button>
+        <button id="shuffle" class="shuffle">洗牌</button>
+        <button id="reset" class="danger">重設本局</button>
+      </div>
+    </div>
+
+    <div class="layout">
+      <main class="stack">
+        <section class="panel">
+          <div class="head">
+            <h2>敵方手牌候選區</h2>
+            <span class="hint">
+              點一下代表敵方已出牌；洗牌 會重新建立候選清單
+            </span>
+          </div>
+
+          <div id="enemyCandidates" class="zone-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="head">
+            <h2>公牌清單</h2>
+            <span class="hint">
+              左鍵／點一下扣除；手機長按或電腦右鍵加入我方手牌
+            </span>
+          </div>
+
+          <div id="cards" class="grid"></div>
+
+          <div class="note">
+            「剩餘」代表目前仍可能位於公牌庫的數量。我方手牌會從此清單移出。
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="head">
+            <h2>我方手牌區</h2>
+            <span class="hint">
+              點一下代表我方已出牌，卡片會維持公牌扣除狀態
+            </span>
+          </div>
+
+          <div id="myHand" class="zone-grid"></div>
+        </section>
+      </main>
+
+      <aside class="stack sidebar-stack">
+        <section class="panel type-panel">
+          <div class="head">
+            <h2>屬性統計</h2>
+          </div>
+
+          <div id="types" class="type-buttons"></div>
+
+          <div class="note">
+            點擊屬性可將含有該屬性的公牌排列到前方，並統一顯示於卡片上半部；再次點擊可取消排序。
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="head">
+            <h2>最近操作</h2>
+            <button id="clear">清除紀錄</button>
+          </div>
+
+          <div id="history" class="history"></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <script src="./field-decks.js"></script>
+  <script src="./tracker.js"></script>
+</body>
+
+</html>

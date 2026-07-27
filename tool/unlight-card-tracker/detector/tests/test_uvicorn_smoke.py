@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
+import http.client
 import socket
 import tempfile
 import time
 import unittest
 from pathlib import Path
 from threading import Thread
-from urllib.request import urlopen
 
 import uvicorn
 
@@ -67,11 +67,35 @@ class UvicornSmokeTest(unittest.TestCase):
                         self.fail("Uvicorn startup timed out")
                     time.sleep(0.02)
 
-                with urlopen(
-                    f"http://127.0.0.1:{port}/api/v1/health",
+                connection = http.client.HTTPConnection(
+                    "127.0.0.1",
+                    port,
                     timeout=2,
-                ) as response:
-                    body = json.load(response)
+                )
+                connection.request("GET", "/")
+                root_response = connection.getresponse()
+                root_response.read()
+                self.assertEqual(root_response.status, 302)
+                self.assertEqual(
+                    root_response.getheader("location"),
+                    "/tracker/",
+                )
+
+                for path in (
+                    "/tracker/",
+                    "/tracker/tracker.js",
+                ):
+                    connection.request("GET", path)
+                    static_response = connection.getresponse()
+                    static_response.read()
+                    self.assertEqual(static_response.status, 200)
+
+                connection.request("GET", "/api/v1/health")
+                response = connection.getresponse()
+                body = json.loads(
+                    response.read().decode("utf-8")
+                )
+                connection.close()
 
                 self.assertEqual(response.status, 200)
                 self.assertEqual(body["server"], "ready")
