@@ -221,6 +221,26 @@ def create_app(
             media_type="text/javascript",
         )
 
+    @app.get(
+        "/tracker/tracker-api.js",
+        include_in_schema=False,
+    )
+    def tracker_api_script() -> FileResponse:
+        return FileResponse(
+            TRACKER_ROOT / "tracker-api.js",
+            media_type="text/javascript",
+        )
+
+    @app.get(
+        "/tracker/observation-poller.js",
+        include_in_schema=False,
+    )
+    def observation_poller_script() -> FileResponse:
+        return FileResponse(
+            TRACKER_ROOT / "observation-poller.js",
+            media_type="text/javascript",
+        )
+
     app.mount(
         "/tracker/assets",
         StaticFiles(

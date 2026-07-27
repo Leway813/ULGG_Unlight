@@ -67,6 +67,15 @@ class StaticTrackerTest(unittest.TestCase):
         )
         self.assertIn("field-decks.js", response.text)
         self.assertIn("tracker.js", response.text)
+        self.assertIn("tracker-api.js", response.text)
+        self.assertIn(
+            "observation-poller.js",
+            response.text,
+        )
+        self.assertIn(
+            'id="observation-status"',
+            response.text,
+        )
 
     def test_tracker_javascript_is_served(self) -> None:
         field_decks = self.client.get(
@@ -98,6 +107,25 @@ class StaticTrackerTest(unittest.TestCase):
             "image/png",
         )
 
+    def test_observation_javascript_is_served(self) -> None:
+        api_client = self.client.get(
+            "/tracker/tracker-api.js"
+        )
+        poller = self.client.get(
+            "/tracker/observation-poller.js"
+        )
+
+        self.assertEqual(api_client.status_code, 200)
+        self.assertEqual(poller.status_code, 200)
+        self.assertIn(
+            "javascript",
+            api_client.headers["content-type"],
+        )
+        self.assertIn(
+            "javascript",
+            poller.headers["content-type"],
+        )
+
     def test_api_routes_are_not_shadowed(self) -> None:
         response = self.client.get("/api/v1/health")
 
@@ -124,6 +152,14 @@ class StaticTrackerTest(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+        unlisted_script = self.client.get(
+            "/tracker/not-allowlisted.js"
+        )
+        self.assertEqual(
+            unlisted_script.status_code,
+            404,
+        )
 
     def test_asset_path_traversal_is_rejected(self) -> None:
         response = self.client.get(

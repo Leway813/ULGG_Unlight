@@ -567,6 +567,62 @@
       align-content: start;
       grid-auto-rows: max-content;
     }
+    .observation-status {
+      margin: 12px 0;
+      padding: 12px 14px;
+      border: 1px solid #344052;
+      border-left: 4px solid #718096;
+      border-radius: 8px;
+      background: #171d27;
+    }
+
+    .observation-status[data-status="connected"] {
+      border-left-color: #48bb78;
+    }
+
+    .observation-status[data-status="warning"],
+    .observation-status[data-status="waiting"] {
+      border-left-color: #ecc94b;
+    }
+
+    .observation-status[data-status="offline"],
+    .observation-status[data-status="paused"] {
+      border-left-color: #f56565;
+    }
+
+    .observation-status h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+    }
+
+    .observation-grid {
+      display: grid;
+      grid-template-columns: repeat(
+        auto-fit,
+        minmax(120px, 1fr)
+      );
+      gap: 8px 14px;
+    }
+
+    .observation-item {
+      min-width: 0;
+    }
+
+    .observation-item small {
+      display: block;
+      color: #9aa6b6;
+      font-size: 11px;
+    }
+
+    .observation-item strong {
+      display: block;
+      overflow-wrap: anywhere;
+      font-size: 13px;
+    }
+
+    .observation-error {
+      grid-column: 1 / -1;
+    }
   </style>
 </head>
 
@@ -611,6 +667,57 @@
         <button id="reset" class="danger">重設本局</button>
       </div>
     </div>
+
+    <section
+      id="observation-status"
+      class="observation-status"
+      data-status="connecting"
+      aria-live="polite"
+    >
+      <h2>Tracker API 診斷</h2>
+
+      <div class="observation-grid">
+        <div class="observation-item">
+          <small>連線</small>
+          <strong id="observation-connection">connecting</strong>
+        </div>
+
+        <div class="observation-item">
+          <small>Session</small>
+          <strong id="observation-session">—</strong>
+        </div>
+
+        <div class="observation-item">
+          <small>Cursor</small>
+          <strong id="observation-cursor">0</strong>
+        </div>
+
+        <div class="observation-item">
+          <small>Loading</small>
+          <strong id="observation-loading">—</strong>
+        </div>
+
+        <div class="observation-item">
+          <small>Observation mode</small>
+          <strong id="observation-mode">—</strong>
+        </div>
+
+        <div class="observation-item">
+          <small>Confidence</small>
+          <strong id="observation-confidence">—</strong>
+        </div>
+
+        <div class="observation-item">
+          <small>Last event</small>
+          <strong id="observation-last-event">—</strong>
+        </div>
+
+        <div class="observation-item observation-error">
+          <small>Error</small>
+          <strong id="observation-error">—</strong>
+        </div>
+      </div>
+    </section>
 
     <div class="layout">
       <main class="stack">
@@ -679,6 +786,8 @@
 
   <script src="./field-decks.js"></script>
   <script src="./tracker.js"></script>
+  <script src="./tracker-api.js"></script>
+  <script src="./observation-poller.js"></script>
 </body>
 
 </html>

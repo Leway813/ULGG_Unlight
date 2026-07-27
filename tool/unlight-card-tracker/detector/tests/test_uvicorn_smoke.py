@@ -84,6 +84,8 @@ class UvicornSmokeTest(unittest.TestCase):
                 for path in (
                     "/tracker/",
                     "/tracker/tracker.js",
+                    "/tracker/tracker-api.js",
+                    "/tracker/observation-poller.js",
                 ):
                     connection.request("GET", path)
                     static_response = connection.getresponse()
