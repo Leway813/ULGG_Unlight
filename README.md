@@ -11,7 +11,7 @@
 - PHP + Bootstrap 前端顯示
 - 排行榜、角色資料、卡片資訊
 
-📌 Demo: [Unlight 排行榜系統](https://service.uve.com.tw/unlight/ranking.php)
+📌 Demo: [Unlight 排行榜系統](https://ulgg.online/)
 
 ## 專案結構
 
