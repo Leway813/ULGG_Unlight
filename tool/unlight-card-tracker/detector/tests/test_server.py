@@ -199,6 +199,33 @@ class ServerApiTest(unittest.TestCase):
             },
         )
 
+    def test_sniffer_session_finish_is_idempotent_and_clears_active(self):
+        self.register_sniffer("launcher-session", "electron")
+        activated = self.client.post(
+            "/api/v1/sessions/launcher-session/activate"
+        )
+        first = self.client.post(
+            "/api/v1/sessions/launcher-session/finish"
+        )
+        second = self.client.post(
+            "/api/v1/sessions/launcher-session/finish"
+        )
+        active = self.client.get("/api/v1/sessions/active")
+
+        self.assertEqual(activated.status_code, 200)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["status"], "finished")
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(
+            second.json()["status"],
+            "already_finished",
+        )
+        self.assertEqual(
+            first.json()["session"]["status"],
+            "completed",
+        )
+        self.assertEqual(active.status_code, 404)
+
     def test_sniffer_registration_keeps_detector_current(self) -> None:
         chrome = self.register_sniffer("chrome-session", "chrome")
         electron = self.register_sniffer("electron-session", "electron")

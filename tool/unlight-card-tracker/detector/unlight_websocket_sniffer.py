@@ -1640,9 +1640,9 @@ def validate_runtime_arguments(parser, args):
     return args
 
 
-def main():
+def main(argv=None):
     parser = build_argument_parser()
-    args = validate_runtime_arguments(parser, parser.parse_args())
+    args = validate_runtime_arguments(parser, parser.parse_args(argv))
 
     if args.redact_existing is not None:
         print_redaction_stats(redact_existing_jsonl(args.redact_existing))
@@ -1699,6 +1699,18 @@ def main():
                 "code": "CLIENT_EXCEPTION",
             }
         sniffer.record_tracker_api_registration(registration)
+        if not registration.get("ok"):
+            if args.tracker_api_required:
+                print(
+                    "[!] Tracker API session registration failed",
+                    flush=True,
+                )
+                return 2
+        else:
+            print(
+                f"TRACKER_SESSION_ID={producer_session_id}",
+                flush=True,
+            )
     try:
         asyncio.run(sniffer.run())
     except KeyboardInterrupt:
@@ -1708,7 +1720,9 @@ def main():
         sniffer.close()
         print(f"[!] 連不上 127.0.0.1:{args.port}")
         print("    請確認遊戲使用 --remote-debugging-port 啟動")
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

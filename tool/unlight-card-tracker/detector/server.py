@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
@@ -36,7 +37,12 @@ DEFAULT_EVENT_LIMIT = 100
 MAX_EVENT_LIMIT = 1000
 WARNING_THRESHOLD_BYTES = 256 * 1024 * 1024
 CRITICAL_THRESHOLD_BYTES = 1024 * 1024 * 1024
-TRACKER_ROOT = Path(__file__).resolve().parent.parent
+TRACKER_ROOT = Path(
+    os.environ.get(
+        "UNLIGHT_TRACKER_ROOT",
+        Path(__file__).resolve().parent.parent,
+    )
+).resolve()
 
 
 class SnifferSessionRegistration(BaseModel):
@@ -196,6 +202,34 @@ def create_app(
                 else "activated"
             ),
             "session": session,
+        }
+
+    @app.post("/api/v1/sessions/{session_id}/finish")
+    def finish_session(session_id: str) -> Any:
+        session = event_store.get_session(session_id)
+        if session is None:
+            return error_response(
+                status_code=404,
+                code="SESSION_NOT_FOUND",
+                message="The requested producer session does not exist.",
+                details={"session_id": session_id},
+            )
+        if session["producer_type"] != "websocket_sniffer":
+            return error_response(
+                status_code=409,
+                code="SESSION_PRODUCER_MISMATCH",
+                message="Only a WebSocket sniffer session can be finished.",
+                details={"session_id": session_id},
+            )
+        if session["status"] == "running":
+            event_store.finish_session(session_id, status="completed")
+            status = "finished"
+        else:
+            status = "already_finished"
+        return {
+            "api_version": API_VERSION,
+            "status": status,
+            "session": event_store.get_session(session_id),
         }
 
     @app.delete("/api/v1/sessions/active")
@@ -400,6 +434,16 @@ def create_app(
     def tracker_script() -> FileResponse:
         return FileResponse(
             TRACKER_ROOT / "tracker.js",
+            media_type="text/javascript",
+        )
+
+    @app.get(
+        "/tracker/tracker-domain-reducer.js",
+        include_in_schema=False,
+    )
+    def tracker_domain_reducer_script() -> FileResponse:
+        return FileResponse(
+            TRACKER_ROOT / "tracker-domain-reducer.js",
             media_type="text/javascript",
         )
 

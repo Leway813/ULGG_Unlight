@@ -5,4 +5,6 @@ fastapi>=0.115
 uvicorn>=0.30
 mss>=10.0
 python-multipart>=0.0.20
+requests>=2.31
+websockets>=12
 httpx2

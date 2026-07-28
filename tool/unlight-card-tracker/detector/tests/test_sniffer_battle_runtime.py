@@ -1,6 +1,8 @@
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from copy import deepcopy
 from pathlib import Path
 from unittest import mock
@@ -215,6 +217,90 @@ class SnifferBattleRuntimeTests(unittest.TestCase):
             captured["producer_session_id"],
             "runtime-session",
         )
+
+    def test_successful_registration_prints_machine_session_id(self):
+        session_id = "65fe49e0-a902-44ae-8c94-ec8a3cf65c71"
+
+        class FakeClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def register_session(self):
+                return {"ok": True, "status": "registered"}
+
+        class FakeSniffer:
+            def __init__(self, **_kwargs):
+                pass
+
+            def record_tracker_api_registration(self, _result):
+                pass
+
+            async def run(self):
+                return None
+
+        output = io.StringIO()
+        with mock.patch.object(
+            sniffer_module,
+            "create_producer_session_id",
+            return_value=session_id,
+        ), mock.patch.object(
+            sniffer_module,
+            "TrackerEventClient",
+            FakeClient,
+        ), mock.patch.object(
+            sniffer_module,
+            "ULSniffer",
+            FakeSniffer,
+        ), redirect_stdout(output):
+            result = main(
+                [
+                    "--process-battle-state",
+                    "--tracker-api-url",
+                    "http://127.0.0.1:8765",
+                    "--tracker-api-required",
+                ]
+            )
+
+        self.assertEqual(result, 0)
+        self.assertIn(
+            f"TRACKER_SESSION_ID={session_id}",
+            output.getvalue(),
+        )
+
+    def test_required_registration_failure_returns_exit_two(self):
+        class FakeClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def register_session(self):
+                return {"ok": False, "code": "CONNECTION_ERROR"}
+
+        class FakeSniffer:
+            def __init__(self, **_kwargs):
+                pass
+
+            def record_tracker_api_registration(self, _result):
+                pass
+
+        with mock.patch.object(
+            sniffer_module,
+            "TrackerEventClient",
+            FakeClient,
+        ), mock.patch.object(
+            sniffer_module,
+            "ULSniffer",
+            FakeSniffer,
+        ):
+            result = main(
+                [
+                    "--process-battle-state",
+                    "--tracker-api-url",
+                    "http://127.0.0.1:8765",
+                    "--tracker-api-required",
+                ]
+            )
+
+        self.assertEqual(result, 2)
 
     def test_processor_receives_caller_owned_session(self):
         sniffer = self.make_sniffer(
