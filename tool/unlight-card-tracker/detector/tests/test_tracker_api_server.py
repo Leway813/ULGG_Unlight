@@ -329,7 +329,7 @@ class TrackerApiServerSubprocessTests(unittest.TestCase):
             connection: http.client.HTTPConnection | None = None
             try:
                 deadline = time.monotonic() + 10
-                body: dict[str, object] | None = None
+                first_health: dict[str, object] | None = None
                 while time.monotonic() < deadline:
                     if process.poll() is not None:
                         stdout, stderr = process.communicate(timeout=2)
@@ -346,7 +346,7 @@ class TrackerApiServerSubprocessTests(unittest.TestCase):
                         )
                         connection.request("GET", "/api/v1/health")
                         response = connection.getresponse()
-                        body = json.loads(
+                        first_health = json.loads(
                             response.read().decode("utf-8")
                         )
                         if response.status == 200:
@@ -360,10 +360,41 @@ class TrackerApiServerSubprocessTests(unittest.TestCase):
                 else:
                     self.fail("standalone API startup timed out")
 
-                self.assertEqual(body["server"], "ready")
-                self.assertEqual(body["detector"], "not_running")
-                self.assertIsNone(body["session_id"])
+                self.assertEqual(first_health["server"], "ready")
+                self.assertEqual(
+                    first_health["detector"],
+                    "not_running",
+                )
+                self.assertIsNone(first_health["session_id"])
                 self.assertTrue(database.is_file())
+
+                time.sleep(3)
+                self.assertIsNone(
+                    process.poll(),
+                    "standalone API exited during the liveness window",
+                )
+
+                connection = http.client.HTTPConnection(
+                    "127.0.0.1",
+                    port,
+                    timeout=2,
+                )
+                connection.request("GET", "/api/v1/health")
+                second_response = connection.getresponse()
+                second_health = json.loads(
+                    second_response.read().decode("utf-8")
+                )
+                connection.close()
+                connection = None
+
+                self.assertEqual(second_response.status, 200)
+                self.assertEqual(second_health["server"], "ready")
+                self.assertEqual(
+                    second_health["detector"],
+                    "not_running",
+                )
+                self.assertIsNone(second_health["session_id"])
+                self.assertIsNone(process.poll())
 
                 shutdown_signal = (
                     signal.CTRL_BREAK_EVENT

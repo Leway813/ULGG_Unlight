@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import os
 import signal
 import socket
 import sys
+import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Sequence
+from typing import Iterator, Sequence
 
 import uvicorn
 from fastapi import FastAPI
@@ -30,6 +31,34 @@ LOG_LEVELS = ("critical", "error", "warning", "info", "debug", "trace")
 
 class PortUnavailableError(RuntimeError):
     pass
+
+
+class ForegroundUvicornServer(uvicorn.Server):
+    """Keep Uvicorn blocking while normalizing signal shutdown to exit 0."""
+
+    @contextmanager
+    def capture_signals(self) -> Iterator[None]:
+        if threading.current_thread() is not threading.main_thread():
+            yield
+            return
+
+        handled_signals = [signal.SIGINT, signal.SIGTERM]
+        if sys.platform == "win32":
+            handled_signals.append(signal.SIGBREAK)
+        previous_handlers = {
+            handled_signal: signal.signal(
+                handled_signal,
+                self.handle_exit,
+            )
+            for handled_signal in handled_signals
+        }
+        try:
+            yield
+        finally:
+            for handled_signal, previous_handler in (
+                previous_handlers.items()
+            ):
+                signal.signal(handled_signal, previous_handler)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -145,7 +174,7 @@ def run_server(args: argparse.Namespace) -> int:
     print(f"SQLite database: {database_path}")
     print("Detector: not running (standalone API mode)")
 
-    server = uvicorn.Server(
+    server = ForegroundUvicornServer(
         uvicorn.Config(
             app,
             host=args.host,
@@ -153,25 +182,11 @@ def run_server(args: argparse.Namespace) -> int:
             log_level=args.log_level,
         )
     )
-    previous_sigbreak_handler = None
-    if os.name == "nt":
-        previous_sigbreak_handler = signal.getsignal(signal.SIGBREAK)
-
-        def finish_sigbreak(
-            _signal_number: int,
-            _frame: object,
-        ) -> None:
-            return None
-
-        signal.signal(signal.SIGBREAK, finish_sigbreak)
-    try:
-        server.run()
-    finally:
-        if previous_sigbreak_handler is not None:
-            signal.signal(
-                signal.SIGBREAK,
-                previous_sigbreak_handler,
-            )
+    server.run()
+    if server.started and not server.should_exit:
+        raise RuntimeError(
+            "Uvicorn returned without a shutdown request"
+        )
     return 0
 
 
