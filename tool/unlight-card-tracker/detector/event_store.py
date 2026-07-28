@@ -12,7 +12,7 @@ from uuid import uuid4
 from event_schema import ObservationEvent, utc_now_iso
 
 
-SQLITE_SCHEMA_VERSION = 2
+SQLITE_SCHEMA_VERSION = 3
 
 
 class EventStoreError(RuntimeError):
@@ -20,6 +20,10 @@ class EventStoreError(RuntimeError):
 
 
 class SessionNotFoundError(EventStoreError):
+    pass
+
+
+class SessionNotRunningError(EventStoreError):
     pass
 
 
@@ -113,7 +117,11 @@ class EventStore:
                 if version_row is not None
                 else SQLITE_SCHEMA_VERSION
             )
-            if existing_version not in {1, SQLITE_SCHEMA_VERSION}:
+            if existing_version not in {
+                1,
+                2,
+                SQLITE_SCHEMA_VERSION,
+            }:
                 raise EventStoreError(
                     "unsupported sqlite_schema_version: "
                     f"{existing_version}"
@@ -146,7 +154,9 @@ class EventStore:
                             'detector',
                             'websocket_sniffer'
                         )),
-                    producer_instance TEXT NOT NULL DEFAULT 'screen'
+                    producer_instance TEXT NOT NULL DEFAULT 'screen',
+                    tracker_active INTEGER NOT NULL DEFAULT 0
+                        CHECK(tracker_active IN (0, 1))
                 );
 
                 CREATE TABLE IF NOT EXISTS events (
@@ -174,13 +184,13 @@ class EventStore:
                     ON events(session_id, sequence);
                 """
             )
+            columns = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(sessions)"
+                ).fetchall()
+            }
             if existing_version == 1:
-                columns = {
-                    row["name"]
-                    for row in connection.execute(
-                        "PRAGMA table_info(sessions)"
-                    ).fetchall()
-                }
                 if "producer_type" not in columns:
                     connection.execute(
                         """
@@ -193,6 +203,7 @@ class EventStore:
                             ))
                         """
                     )
+                    columns.add("producer_type")
                 if "producer_instance" not in columns:
                     connection.execute(
                         """
@@ -201,6 +212,24 @@ class EventStore:
                             DEFAULT 'screen'
                         """
                     )
+                    columns.add("producer_instance")
+            if "tracker_active" not in columns:
+                connection.execute(
+                    """
+                    ALTER TABLE sessions
+                    ADD COLUMN tracker_active INTEGER NOT NULL
+                        DEFAULT 0
+                        CHECK(tracker_active IN (0, 1))
+                    """
+                )
+            connection.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    idx_sessions_single_tracker_active
+                ON sessions(tracker_active)
+                WHERE tracker_active = 1
+                """
+            )
             connection.execute(
                 """
                 INSERT INTO schema_metadata(key, value)
@@ -230,7 +259,9 @@ class EventStore:
             connection.execute(
                 """
                 UPDATE sessions
-                SET status = 'aborted', ended_at = ?
+                SET status = 'aborted',
+                    ended_at = ?,
+                    tracker_active = 0
                 WHERE status = 'running'
                     AND producer_type = 'detector'
                 """,
@@ -369,7 +400,9 @@ class EventStore:
             cursor = connection.execute(
                 """
                 UPDATE sessions
-                SET status = ?, ended_at = ?
+                SET status = ?,
+                    ended_at = ?,
+                    tracker_active = 0
                 WHERE session_id = ? AND status = 'running'
                 """,
                 (status, utc_now_iso(), session_id),
@@ -398,6 +431,88 @@ class EventStore:
                 """
             ).fetchone()
         return dict(row) if row is not None else None
+
+    def get_active_session(self) -> dict[str, Any] | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM sessions
+                WHERE tracker_active = 1
+                LIMIT 1
+                """
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def activate_session(
+        self,
+        session_id: str,
+    ) -> tuple[dict[str, Any], bool]:
+        """Make one running session the sole Tracker authority."""
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT *
+                FROM sessions
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                raise SessionNotFoundError(session_id)
+            if row["status"] != "running":
+                raise SessionNotRunningError(session_id)
+
+            already_active = row["tracker_active"] == 1
+            if not already_active:
+                connection.execute(
+                    """
+                    UPDATE sessions
+                    SET tracker_active = 0
+                    WHERE tracker_active = 1
+                    """
+                )
+                connection.execute(
+                    """
+                    UPDATE sessions
+                    SET tracker_active = 1
+                    WHERE session_id = ? AND status = 'running'
+                    """,
+                    (session_id,),
+                )
+            active = connection.execute(
+                """
+                SELECT *
+                FROM sessions
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+
+        assert active is not None
+        return dict(active), already_active
+
+    def clear_active_session(self) -> dict[str, Any] | None:
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            active = connection.execute(
+                """
+                SELECT *
+                FROM sessions
+                WHERE tracker_active = 1
+                LIMIT 1
+                """
+            ).fetchone()
+            if active is not None:
+                connection.execute(
+                    """
+                    UPDATE sessions
+                    SET tracker_active = 0
+                    WHERE tracker_active = 1
+                    """
+                )
+        return dict(active) if active is not None else None
 
     def append_event(
         self,

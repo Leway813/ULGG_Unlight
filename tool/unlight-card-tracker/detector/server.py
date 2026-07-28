@@ -27,6 +27,7 @@ from event_store import (
     SequenceGapError,
     SessionIdentityConflictError,
     SessionNotFoundError,
+    SessionNotRunningError,
 )
 
 
@@ -151,6 +152,59 @@ def create_app(
         return {
             "api_version": API_VERSION,
             "session": session,
+        }
+
+    @app.get("/api/v1/sessions/active")
+    def active_session() -> Any:
+        session = event_store.get_active_session()
+        if session is None:
+            return error_response(
+                status_code=404,
+                code="NO_ACTIVE_SESSION",
+                message="No active Tracker session exists.",
+            )
+        return {
+            "api_version": API_VERSION,
+            "session": session,
+        }
+
+    @app.post("/api/v1/sessions/{session_id}/activate")
+    def activate_session(session_id: str) -> Any:
+        try:
+            session, already_active = event_store.activate_session(
+                session_id
+            )
+        except SessionNotFoundError:
+            return error_response(
+                status_code=404,
+                code="SESSION_NOT_FOUND",
+                message="The requested producer session does not exist.",
+                details={"session_id": session_id},
+            )
+        except SessionNotRunningError:
+            return error_response(
+                status_code=409,
+                code="SESSION_NOT_RUNNING",
+                message="Only a running session can be activated.",
+                details={"session_id": session_id},
+            )
+        return {
+            "api_version": API_VERSION,
+            "status": (
+                "already_active"
+                if already_active
+                else "activated"
+            ),
+            "session": session,
+        }
+
+    @app.delete("/api/v1/sessions/active")
+    def clear_active_session() -> Any:
+        previous = event_store.clear_active_session()
+        return {
+            "api_version": API_VERSION,
+            "status": "cleared" if previous is not None else "no_active",
+            "previous_session": previous,
         }
 
     @app.post("/api/v1/sessions")

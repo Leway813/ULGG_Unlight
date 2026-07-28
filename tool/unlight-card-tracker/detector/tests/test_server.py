@@ -218,6 +218,113 @@ class ServerApiTest(unittest.TestCase):
             "running",
         )
 
+    def test_active_session_lifecycle_and_current_contract(self) -> None:
+        no_active = self.client.get("/api/v1/sessions/active")
+        detector_activation = self.client.post(
+            f"/api/v1/sessions/{self.session['session_id']}/activate"
+        )
+        detector_repeated = self.client.post(
+            f"/api/v1/sessions/{self.session['session_id']}/activate"
+        )
+        self.register_sniffer("chrome-session", "chrome")
+        chrome_activation = self.client.post(
+            "/api/v1/sessions/chrome-session/activate"
+        )
+        self.register_sniffer("electron-session", "electron")
+        electron_activation = self.client.post(
+            "/api/v1/sessions/electron-session/activate"
+        )
+        active = self.client.get("/api/v1/sessions/active")
+        current = self.client.get("/api/v1/sessions/current")
+
+        self.assertEqual(no_active.status_code, 404)
+        self.assertEqual(
+            no_active.json()["error"]["code"],
+            "NO_ACTIVE_SESSION",
+        )
+        self.assertEqual(detector_activation.status_code, 200)
+        self.assertEqual(
+            detector_activation.json()["status"],
+            "activated",
+        )
+        self.assertEqual(
+            detector_repeated.json()["status"],
+            "already_active",
+        )
+        self.assertEqual(chrome_activation.status_code, 200)
+        self.assertEqual(electron_activation.status_code, 200)
+        self.assertEqual(
+            active.json()["session"]["session_id"],
+            "electron-session",
+        )
+        self.assertEqual(
+            current.json()["session"]["session_id"],
+            self.session["session_id"],
+        )
+        self.assertEqual(
+            self.store.get_session("chrome-session")["tracker_active"],
+            0,
+        )
+
+    def test_active_session_errors_finish_and_clear(self) -> None:
+        missing = self.client.post(
+            "/api/v1/sessions/missing-session/activate"
+        )
+        self.register_sniffer("completed-session", "chrome")
+        self.store.finish_session("completed-session")
+        completed = self.client.post(
+            "/api/v1/sessions/completed-session/activate"
+        )
+        self.register_sniffer("aborted-session", "electron")
+        self.store.finish_session(
+            "aborted-session",
+            status="aborted",
+        )
+        aborted = self.client.post(
+            "/api/v1/sessions/aborted-session/activate"
+        )
+
+        self.register_sniffer("active-session", "chrome")
+        self.client.post(
+            "/api/v1/sessions/active-session/activate"
+        )
+        self.store.finish_session("active-session")
+        cleared_by_finish = self.client.get(
+            "/api/v1/sessions/active"
+        )
+
+        self.register_sniffer("clear-session", "electron")
+        self.client.post(
+            "/api/v1/sessions/clear-session/activate"
+        )
+        clear = self.client.delete("/api/v1/sessions/active")
+        repeated_clear = self.client.delete(
+            "/api/v1/sessions/active"
+        )
+
+        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(
+            missing.json()["error"]["code"],
+            "SESSION_NOT_FOUND",
+        )
+        for response in (completed, aborted):
+            self.assertEqual(response.status_code, 409)
+            self.assertEqual(
+                response.json()["error"]["code"],
+                "SESSION_NOT_RUNNING",
+            )
+        self.assertEqual(cleared_by_finish.status_code, 404)
+        self.assertEqual(clear.status_code, 200)
+        self.assertEqual(clear.json()["status"], "cleared")
+        self.assertEqual(
+            clear.json()["previous_session"]["session_id"],
+            "clear-session",
+        )
+        self.assertEqual(
+            repeated_clear.json()["status"],
+            "no_active",
+        )
+
     def test_domain_event_post_is_idempotent_and_cursor_ordered(self) -> None:
         self.register_sniffer("chrome-session", "chrome")
         event = self.domain_event("chrome-session")

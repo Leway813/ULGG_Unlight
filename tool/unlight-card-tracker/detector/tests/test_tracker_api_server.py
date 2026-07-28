@@ -235,7 +235,10 @@ class TrackerApiServerUnitTests(unittest.TestCase):
                 connection.row_factory = sqlite3.Row
                 row = connection.execute(
                     """
-                    SELECT producer_type, producer_instance
+                    SELECT
+                        producer_type,
+                        producer_instance,
+                        tracker_active
                     FROM sessions
                     WHERE session_id = 'legacy-detector'
                     """
@@ -250,7 +253,8 @@ class TrackerApiServerUnitTests(unittest.TestCase):
 
             self.assertEqual(row["producer_type"], "detector")
             self.assertEqual(row["producer_instance"], "screen")
-            self.assertEqual(version, "2")
+            self.assertEqual(row["tracker_active"], 0)
+            self.assertEqual(version, "3")
 
     def test_occupied_port_has_explicit_error(self) -> None:
         with socket.socket() as occupied:
