@@ -1,10 +1,27 @@
-# 環境檔案
+# Environment files
 .env
+.env.*
+!.env.example
 steam/data/.env
-*.sh
 
-# 批次檔
-*.bat
+# SSH/private key material
+**/.ssh/
+**/id_rsa
+**/id_rsa_*
+**/id_ed25519
+**/id_ed25519_*
+*.pem
+*.ppk
+*.key
+
+# Local captures and backups
+*.har
+*.bak
+*.backup
+*~
+
+# Dated local task script backups
+/scripts/run_unlight_tasks_manual[0-9]*.sh
 
 # Python 暫存
 __pycache__/
@@ -51,3 +68,46 @@ database/Dump*/
 # 不需要的雜檔（限定路徑）
 steam/data/*.pyw
 steam/data/*.txt
+# Tracker build / runtime output
+/tool/unlight-card-tracker/detector/dist/
+/tool/unlight-card-tracker/detector/build/
+/tool/unlight-card-tracker/detector/output/
+/tool/unlight-card-tracker/detector/deck/
+/tool/unlight-card-tracker/detector/debug_frames/
+/tool/unlight-card-tracker/detector/events.sqlite3
+/tool/unlight-card-tracker/detector/*.sqlite3
+/tool/unlight-card-tracker/detector/26.1.2
+/tool/unlight-card-tracker/detector/self.expected_card_height
+
+# Import captures
+/scripts/import/har/*.har
+
+# Watcher runtime state and backups
+/watcher/*_backup/
+/watcher/*_history_backup/
+/watcher/probe_logs/
+/watcher/room4_probe/*.json
+/watcher/room4_probe/*.jsonl
+/watcher/raid_probe/*.json
+/watcher/channel*_room*.json
+/watcher/ranking_*.json
+/watcher/watcher_log.txt
+
+# VPS runtime state, backups, and secrets
+/vps/*_backup/
+/vps/*_history_backup/
+/vps/backup/
+/vps/channel*_room*.json
+/vps/ranking_*.json
+/vps/maintenance_status.json
+/vps/watcher_log.txt
+/vps/.ssh/
+/vps/my_vps_key.txt
+/vps/my_vps_pri_key.ppk
+/vps/ssh-rsa.txt
+
+# Local audit and generated files
+/dirty-status-before-cleanup.txt
+/-before-cleanup.txt
+/steam/data/diff.diff
+/tool/unlight-card-tracker-v2-starter.zip
