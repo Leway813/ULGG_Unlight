@@ -9,3 +9,4 @@ __pycache__/
 htmlcov/
 logs/
 *.log
+debug_frames/

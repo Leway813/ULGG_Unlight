@@ -56,6 +56,19 @@ PUBLIC_COUNT_DEBUG = True
 REFERENCE_WIDTH = 848
 REFERENCE_HEIGHT = 760
 
+
+def create_site_detector(
+    *,
+    debug_images: bool = False,
+) -> SiteDetector:
+    return SiteDetector(
+        template_dir=SITE_TEMPLATE_DIR,
+        region=SITE_BACKGROUND_ROI,
+        min_hybrid_raw_score=0.10,
+        debug_images=debug_images,
+    )
+
+
 SITE_TEMPLATE_DIR = (
     ROOT.parent
     / "assets"
@@ -4479,10 +4492,8 @@ def main() -> None:
             digit_right_x=28,
         )
     )
-    site_detector = SiteDetector(
-        template_dir=SITE_TEMPLATE_DIR,
-        region=SITE_BACKGROUND_ROI,
-        threshold=0.55,
+    site_detector = create_site_detector(
+        debug_images=args.debug,
     )
     site_roi_x = int(
     SITE_BACKGROUND_ROI["x"]
