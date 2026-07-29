@@ -5731,15 +5731,13 @@ if (
 
             <a href="/pages/quest_map.php"
               class="sidebar-link <?= $activeMenu === 'quest_map' ? 'is-active' : '' ?>">
-              <span class="sidebar-icon">🧭</span>
               <span class="sidebar-text">
-                地圖任務查詢 <small>Quest</small>
+                地圖任務查詢 <small>Map</small>
               </span>
             </a>
 
             <a href="/pages/skills.php"
               class="sidebar-link <?= $activeMenu === 'skills' ? 'is-active' : '' ?>">
-              <span class="sidebar-icon">🏷️</span>
               <span class="sidebar-text">
                 技能戰術搜尋 <small>Skills</small>
               </span>
@@ -5747,19 +5745,12 @@ if (
 
             <a href="/pages/calculator.php"
               class="sidebar-link <?= $activeMenu === 'calculator' ? 'is-active' : '' ?>">
-              <span class="sidebar-icon">⚔️</span>
               <span class="sidebar-text">
                 計算 Cost <small>Calculator</small>
               </span>
             </a>
 
-            <a href="/pages/ruleset/index.php"
-              class="sidebar-link <?= $activeMenu === 'ruleset' ? 'is-active' : '' ?>">
-              <span class="sidebar-icon">📜</span>
-              <span class="sidebar-text">
-                社群規則 <small>Ruleset</small>
-              </span>
-            </a>
+
 
 
 
@@ -5794,7 +5785,7 @@ if (
             class="sidebar-link <?= $activeMenu === 'user_manage' ? 'is-active' : '' ?>">
             <span class="sidebar-icon">👤</span>
             <span class="sidebar-text">
-              會員管理 <small>Memberships</small>
+              會員管理 <small>Members</small>
             </span>
           </a>
 
@@ -5831,7 +5822,16 @@ if (
                 公牌追蹤 <small>Tracker</small>
               </span>
             </a>
+
+            <a href="/pages/ruleset/index.php"
+              class="sidebar-link <?= $activeMenu === 'ruleset' ? 'is-active' : '' ?>">
+              <span class="sidebar-icon">📜</span>
+              <span class="sidebar-text">
+                社群規則 <small>Ruleset</small>
+              </span>
+            </a>
           </div>
+
 
         <?php endif; ?>
 
