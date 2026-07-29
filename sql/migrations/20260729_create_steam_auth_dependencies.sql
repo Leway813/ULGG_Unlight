@@ -1,6 +1,6 @@
 -- Steam authentication persistence required by api/auth/steam_callback.php.
 -- Existing non-NULL game_user.steamID values must be unique before migration.
-USE unlight;
+
 SET @column_exists = (
     SELECT COUNT(*)
     FROM information_schema.columns
