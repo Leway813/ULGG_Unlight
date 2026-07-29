@@ -18,6 +18,8 @@ if (!is_file($composerAutoload)) {
     );
 }
 
+
+
 require_once $composerAutoload;
 
 if (!class_exists(Dotenv\Dotenv::class)) {
@@ -28,6 +30,7 @@ if (!class_exists(Dotenv\Dotenv::class)) {
 
 // ⭐ 載入 .env
 Dotenv\Dotenv::createImmutable(__DIR__)->safeLoad();
+
 
 /**
  * Read one environment value from supported PHP environment sources.
