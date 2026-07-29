@@ -1,0 +1,59 @@
+/* ==========================================
+   UL.GG Global Layout Override
+   ========================================== */
+
+/* Sidebar fix（你目前的設定是正確的） */
+.content-wrapper,
+.main-footer {
+  margin-left: 0 !important;
+  background: transparent !important;
+}
+
+/* Base container */
+.container {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 15px;
+  padding-right: 15px;
+}
+
+/* 平板（≥768px）
+   原 BS3: 750px → ×1.165 ≒ 875px */
+@media (min-width: 768px) {
+  .container {
+    max-width: 875px;
+  }
+}
+
+/* 小桌機 / 筆電（≥992px）
+   你指定的核心尺寸 */
+@media (min-width: 992px) {
+  .container {
+    max-width: 1130px;
+  }
+}
+
+/* 一般桌機（≥1200px）
+   原 BS3: 1170px → ×1.165 ≒ 1360px */
+@media (min-width: 1200px) {
+  .container {
+    max-width: 1360px;
+  }
+}
+
+/* 大桌機（≥1500px）
+   額外給分析頁、寬表格 */
+@media (min-width: 1500px) {
+  .container {
+    max-width: 1480px;
+  }
+}
+
+/* 超大桌機（≥1800px）
+   防止過寬，保留可讀性 */
+@media (min-width: 1800px) {
+  .container {
+    max-width: 1560px;
+  }
+}

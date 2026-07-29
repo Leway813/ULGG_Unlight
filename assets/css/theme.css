@@ -1,0 +1,1090 @@
+/* ============================================================
+   UL.GG Layout — Clean Version
+   Navbar / Sidebar / Responsive / Main Content
+   Author: ChatGPT — Rebuilt & Optimized
+============================================================ */
+
+/* =========================
+   Theme Variables
+========================= */
+:root {
+  --bg-main: #0b0c10;
+  --bg-card-top: #2a2a3a;
+  --bg-card-mid: #14141c;
+  --bg-card-bottom: #08080c;
+
+  --border-glow: rgba(120, 120, 255, 0.5);
+  --border-soft: rgba(255, 255, 255, 0.06);
+
+  --text-main: #e0e0e0;
+  --text-soft: #b0bec5;
+
+  --accent: #9fa8da;
+  --accent-strong: rgba(120, 120, 255, 0.6);
+
+  --danger: #ef9a9a;
+  --success: #a5d6a7;
+  --warning: #ffcc80;
+
+  --sidebar-width: 230px;
+  --navbar-height: 56px;
+}
+
+/* =========================
+   Base Settings
+========================= */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body.un-body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.02)), #212121;
+  color: var(--text-main);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* =========================
+   Navbar (Always Fixed)
+========================= */
+.un-navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--navbar-height);
+
+  z-index: 20000;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+
+  background: linear-gradient(to right,
+      rgba(8, 8, 12, 0.96),
+      rgba(20, 20, 32, 0.96));
+  border-bottom: 1px solid rgba(120, 120, 255, 0.4);
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.9);
+}
+
+.nav-brand {
+  display: flex;
+  flex-direction: column;
+  margin-left: 8px;
+}
+
+.nav-logo {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-shadow: 0 0 6px var(--accent-strong);
+}
+
+.nav-subtitle {
+  font-size: 11px;
+  color: var(--accent);
+  opacity: 0.9;
+}
+
+.nav-right {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.nav-toggle {
+  display: none;
+  position: relative;
+  z-index: 20001;
+  padding: 6px 10px;
+
+  border-radius: 6px;
+  border: 1px solid rgba(120, 120, 255, 0.5);
+  background: rgba(10, 10, 20, 0.7);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.nav-toggle:hover {
+  background: rgba(120, 120, 255, 0.18);
+}
+
+/* =========================
+   Sidebar (Fixed on Desktop)
+========================= */
+.un-sidebar {
+  position: fixed;
+  top: var(--navbar-height);
+  bottom: 0;
+  left: 0;
+  width: var(--sidebar-width);
+
+  background: radial-gradient(circle at top, #14141c 0%, #050509 60%);
+  border-right: 1px solid rgba(120, 120, 255, 0.4);
+  box-shadow: 0 0 18px rgba(0, 0, 0, 0.9);
+
+  padding: 14px 10px;
+  overflow-y: auto;
+  z-index: 15000;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+
+  color: var(--text-soft);
+  text-decoration: none;
+  transition: 0.2s;
+}
+
+.sidebar-link:hover {
+  background: rgba(120, 120, 255, 0.12);
+  color: #fff;
+}
+
+.sidebar-link.is-active {
+  background: linear-gradient(90deg,
+      rgba(120, 120, 255, 0.35),
+      rgba(120, 120, 255, 0.12));
+  color: #fff;
+}
+
+/* =========================
+   Main Content
+========================= */
+.un-main {
+  margin-top: var(--navbar-height);
+  margin-left: var(--sidebar-width);
+  padding: 18px 24px;
+}
+
+.un-main-inner {
+  /* padding: 20px; */
+  margin: 0 auto;
+}
+
+.page-header {
+  margin: 10px 0 10px 0 !important;
+}
+
+.page-title {
+  font-size: 22px;
+  color: #fff;
+  text-shadow: 0 0 8px var(--accent-strong);
+}
+
+/* =========================
+   Overlay (Mobile Only)
+========================= */
+.un-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease-out;
+  z-index: 14000;
+}
+
+/* =========================
+   Mobile Responsive Layout
+========================= */
+@media (max-width: 992px) {
+
+  /* Sidebar becomes slide-out */
+  .un-sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.25s ease-out;
+  }
+
+  body.sidebar-open .un-sidebar {
+    transform: translateX(0);
+  }
+
+  body.sidebar-open .un-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Navbar */
+  .nav-toggle {
+    display: inline-flex;
+  }
+
+  /* Main content resets */
+  .un-main {
+    margin-left: 0;
+    padding: 18px 13px;
+    margin-top: 35px;
+  }
+}
+
+@media (max-width: 768px) {
+
+  /* Main content resets */
+  .un-main {
+    margin-top: 0px;
+  }
+}
+
+/* =========================
+   Desktop forced fixed
+========================= */
+@media (min-width: 992px) {
+  .un-sidebar {
+    transform: none !important;
+  }
+}
+
+/* 修正 AdminLTE 造成內容被推右側的問題 */
+.content-wrapper,
+.main-footer {
+  margin-left: 0 !important;
+}
+
+/* 覆蓋 AdminLTE 預設白色內容背景，改為透明 */
+.content-wrapper {
+  background: transparent !important;
+}
+
+/* 只移除使用者選單內的 caret */
+.user-box .fa-caret-down:before {
+  display: none !important;
+}
+
+/* =========================
+   DataTables Dark Fix（一定最後）
+========================= */
+table.dataTable tbody tr {
+  background-color: #0b0c10 !important;
+  color: #e0e0e0;
+}
+
+table.dataTable tbody tr:nth-child(even) {
+  background-color: #10121a !important;
+}
+
+table.dataTable tbody tr:hover {
+  background-color: rgba(120, 120, 255, 0.15) !important;
+}
+
+table.dataTable tbody td {
+  background-color: transparent !important;
+  color: inherit;
+}
+
+/* ===============================
+   DataTables Controls - UL.GG Style
+================================ */
+
+/* ---- Show entries / Search 區塊 ---- */
+.dataTables_wrapper {
+  color: #cfd8dc;
+  font-size: 13px;
+}
+
+/* Show entries select */
+.dataTables_length select {
+  background: #0b0c10;
+  color: #e0e0e0;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin: 0 4px;
+}
+
+/* Search input */
+.dataTables_filter input {
+  background: #0b0c10;
+  color: #e0e0e0;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin-left: 6px;
+}
+
+/* Focus 狀態 */
+.dataTables_filter input:focus,
+.dataTables_length select:focus {
+  outline: none;
+  border-color: rgba(120, 120, 255, 0.6);
+  box-shadow: 0 0 0 2px rgba(120, 120, 255, 0.2);
+}
+
+/* ---- Info text ---- */
+.dataTables_info {
+  color: #9fa8da;
+  padding-top: 8px;
+}
+
+/* ===============================
+   DataTables + Bootstrap Pagination
+   （只改顏色，不動結構）
+================================ */
+
+/* 所有頁碼 a */
+.dataTables_wrapper .pagination>li.paginate_button>a {
+  background-color: transparent !important;
+  color: #cfd8dc !important;
+  transition: background-color .15s ease, color .15s ease;
+}
+
+/* Hover */
+.dataTables_wrapper .pagination>li.paginate_button>a:hover {
+  background-color: rgba(120, 120, 255, 0.22) !important;
+  color: #ffffff !important;
+}
+
+/* Active page（目前頁碼） */
+.dataTables_wrapper .pagination>li.paginate_button.active>a {
+  background-color: rgba(120, 120, 255, 0.45) !important;
+  color: #ffffff !important;
+  font-weight: 600;
+}
+
+/* Disabled（Previous / Next） */
+.dataTables_wrapper .pagination>li.paginate_button.disabled>a {
+  background-color: transparent !important;
+  color: rgba(255, 255, 255, 0.35) !important;
+  cursor: default;
+}
+
+/* 移除 Bootstrap focus 白框 */
+.dataTables_wrapper .pagination>li.paginate_button>a:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* DataTable 預設先隱藏，避免白閃 */
+.datatable-init-hide {
+  visibility: hidden;
+}
+
+/* =========================================================
+   9. Table Card
+========================================================= */
+.card-dark {
+  background: #14141c;
+  border: 1px solid rgba(120, 120, 255, 0.2);
+  border-radius: 10px;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.5);
+  padding: 10px 0px;
+  margin: 10px 0px;
+}
+
+/* =========================
+   DataTable Border - Dark Enhance
+========================= */
+table.dataTable {
+  border-collapse: collapse;
+}
+
+/* header 底線 */
+table.dataTable thead th {
+  border-bottom: 1px solid rgba(120, 120, 255, 0.45) !important;
+}
+
+/* 每列橫線 */
+table.dataTable tbody td {
+  border-top: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+/* hover 時加強 */
+table.dataTable tbody tr:hover td {
+  border-top-color: rgba(255, 255, 255, 0.22) !important;
+}
+
+.ul-container-nopad {
+  padding: 0 !important;
+}
+
+.container {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+
+/* =========================================================
+   UNLIGHT Scrollbar Style (Dark Unified)
+========================================================= */
+
+/* Chrome / Edge / Chromium */
+.dataTables_scrollBody::-webkit-scrollbar,
+.card-body::-webkit-scrollbar,
+.content-wrapper::-webkit-scrollbar {
+  width: 10px;
+}
+
+.dataTables_scrollBody::-webkit-scrollbar-track,
+.card-body::-webkit-scrollbar-track,
+.content-wrapper::-webkit-scrollbar-track {
+  background: #0b0c10;
+  border-radius: 8px;
+}
+
+.dataTables_scrollBody::-webkit-scrollbar-thumb,
+.card-body::-webkit-scrollbar-thumb,
+.content-wrapper::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg,
+      rgba(120, 120, 255, 0.6),
+      rgba(120, 120, 255, 0.25));
+  border-radius: 8px;
+  border: 2px solid #0b0c10;
+}
+
+.dataTables_scrollBody::-webkit-scrollbar-thumb:hover,
+.card-body::-webkit-scrollbar-thumb:hover,
+.content-wrapper::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg,
+      rgba(160, 160, 255, 0.9),
+      rgba(120, 120, 255, 0.5));
+}
+
+/* Firefox */
+.dataTables_scrollBody,
+.card-body,
+.content-wrapper {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 120, 255, 0.6) #0b0c10;
+}
+
+/* ======================================================
+   UL 浮動控制按鈕（Top / Bottom）
+   功能不變，只改外觀
+====================================================== */
+#backToTop,
+#goToBottom {
+  position: fixed;
+  right: 12px;
+  width: 48px;
+  height: 48px;
+
+  display: none;
+  /* JS 控制顯示 */
+  justify-content: center;
+  align-items: center;
+
+  cursor: pointer;
+  z-index: 999;
+
+  /* UL 風格 */
+  background: linear-gradient(180deg, #2b3140, #1e222d);
+  color: #dbe4ff;
+
+  border-radius: 50%;
+  border: 1px solid rgba(150, 180, 255, 0.25);
+
+  font-size: 18px;
+  font-weight: bold;
+
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+
+  transition:
+    background 0.3s ease,
+    box-shadow 0.3s ease,
+    transform 0.25s ease;
+}
+
+/* 位置 */
+#backToTop {
+  bottom: 92px;
+}
+
+#goToBottom {
+  bottom: 32px;
+}
+
+/* Hover：UL 冷藍發光 */
+#backToTop:hover,
+#goToBottom:hover {
+  background: linear-gradient(180deg, #344a7a, #26385f);
+  box-shadow:
+    0 0 14px rgba(120, 170, 255, 0.65),
+    0 6px 18px rgba(0, 0, 0, 0.6);
+  transform: translateY(-2px);
+}
+
+/* Active：按下感 */
+#backToTop:active,
+#goToBottom:active {
+  transform: translateY(0);
+  box-shadow:
+    0 4px 10px rgba(0, 0, 0, 0.6);
+}
+
+.badge-ul-bind {
+  background: linear-gradient(180deg, #2ecc71, #27ae60);
+  color: #0b1f12;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  box-shadow:
+    0 2px 6px rgba(46, 204, 113, 0.35),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+/* ======================================================
+   UL.GG Table Layer（吃主題變數）
+====================================================== */
+
+.ul-table {
+  background: var(--bg-card-mid);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.ul-table thead th {
+  background: linear-gradient(to bottom,
+      var(--bg-card-top),
+      var(--bg-card-mid));
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.ul-table tbody tr {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ul-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ul-table tbody tr:hover {
+  background: rgba(120, 120, 255, 0.10);
+}
+
+.ul-table td {
+  color: var(--text-main);
+  font-size: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* 🔥 UL.GG 分析頁：完全移除表格橫線 */
+.ul-card .table.table-dark,
+.ul-card .table.table-dark th,
+.ul-card .table.table-dark td {
+  border: none !important;
+}
+
+/* 用條紋來分行（非常淡） */
+.ul-card .table-dark.table-striped>tbody>tr:nth-of-type(odd) {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+
+.ul-card .table-dark.table-striped>tbody>tr:nth-of-type(even) {
+  background-color: rgba(255, 255, 255, 0.015) !important;
+}
+
+/* =========================
+   DataTables Dark Toolbar
+========================= */
+
+/* 讓 DataTables 自帶的 filter/length label 不要那麼亮 */
+.dataTables_wrapper .dataTables_length label,
+.dataTables_wrapper .dataTables_filter label {
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+/* 兩排工具列 */
+.dt-top-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.dt-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dt-toolbar-row .dataTables_length {
+  margin-left: auto;
+}
+
+/* 右下排搜尋 */
+.dt-toolbar-search {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 深色按鈕（同時處理 DataTables 預設 btn-default） */
+.dt-buttons .btn,
+.dt-buttons .btn.btn-default {
+  background: #1f2937 !important;
+  color: #e5e7eb !important;
+  border: 1px solid rgba(255, 255, 255, .18) !important;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.dt-buttons .btn:hover {
+  background: #111827 !important;
+  border-color: rgba(255, 255, 255, .28) !important;
+}
+
+/* 深色 select / input */
+.dataTables_length select,
+.dataTables_filter input {
+  background: #0b1220 !important;
+  color: #e5e7eb !important;
+  border: 1px solid rgba(255, 255, 255, .18) !important;
+  border-radius: 8px;
+  height: 32px;
+}
+
+.dataTables_filter input {
+  width: 220px;
+  padding: 6px 10px;
+}
+
+/* 手機 */
+@media (max-width: 768px) {
+  .dt-toolbar-row .dataTables_length {
+    margin-left: 0;
+  }
+
+  .dt-toolbar-search {
+    justify-content: stretch;
+  }
+
+  .dataTables_filter input {
+    width: 100%;
+  }
+}
+
+/* ===============================
+   UL Skill Card (Unlight Style)
+=============================== */
+
+.ul-skill-card {
+  background: linear-gradient(180deg, #2a2e3a, #1b1e27);
+  border: 1px solid #3a3f55;
+  border-radius: 6px;
+  margin-bottom: 14px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .03);
+}
+
+/* 上方 ACTIVE bar */
+.ul-skill-header {
+  background: #11131a;
+  border-bottom: 1px solid #3a3f55;
+  padding: 4px 8px;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #cfd3dc;
+}
+
+.ul-skill-type {
+  font-weight: 700;
+  opacity: .85;
+}
+
+/* 內容 */
+.ul-skill-body {
+  padding: 8px 10px;
+}
+
+/* 技能名稱 */
+.ul-skill-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #e6e9ef;
+  margin-bottom: 6px;
+}
+
+/* META（ATK / DEF / MOV / COST） */
+.ul-skill-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+/* 小色塊 */
+.skill-badge {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.skill-badge.atk {
+  background: #8b2e2e;
+  color: #fff;
+}
+
+.skill-badge.def {
+  background: #2e4a8b;
+  color: #fff;
+}
+
+.skill-badge.mov {
+  background: #6f10b3;
+  color: #fff;
+}
+
+.skill-badge.range {
+  background: #2e8b57;
+  color: #fff;
+}
+
+.skill-badge.cost {
+  background: #b59b2e;
+  color: #111;
+}
+
+/* 技能說明 */
+.ul-skill-desc {
+  font-size: 13px;
+  color: #d6dae3;
+  line-height: 2.5;
+  white-space: normal;
+}
+
+/* ===============================
+   UL Skill Range (Unlight Rule)
+=============================== */
+
+.ul-range-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* ===== Range Badge - OFF（預設） ===== */
+.range-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 22px;
+  height: 18px;
+
+  font-size: 12px;
+  font-weight: 700;
+
+  border-radius: 3px;
+
+  background: #3a3f46;
+  /* 深灰底 */
+  color: #9aa0a6;
+  /* 淡灰字 */
+  border: 1px solid #3a3f55;
+
+  opacity: 0.5;
+}
+
+/* ===== 啟用狀態 ===== */
+
+/* 近距（劍） */
+.range-badge.range-near.on {
+  background: #8b2e2e;
+  /* 紅 */
+  color: #fff;
+  opacity: 1;
+}
+
+/* 中距（槍） */
+.range-badge.range-mid.on {
+  background: #2e8b57;
+  /* 綠 */
+  color: #fff;
+  opacity: 1;
+}
+
+/* 遠距（槍） */
+.range-badge.range-far.on {
+  background: #2e8b57;
+  /* 綠 */
+  color: #fff;
+  opacity: 1;
+}
+
+/* ON 的細節強化 */
+.range-badge.on {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+
+/* ===============================
+   Require Chip – Color Background
+=============================== */
+
+.req-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+
+  padding: 4px 7px;
+  border-radius: 4px;
+
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+
+  color: #ffffff;
+  /* ← 數字 / 箭頭一律白色 */
+  background-color: currentColor;
+  /* ← 底色用 type color */
+
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+/* 數字 */
+.req-num {
+  font-size: 14px;
+  color: #ffffff;
+}
+
+/* ↑ / = */
+.req-op {
+  font-size: 12px;
+  opacity: 0.95;
+  color: #ffffff;
+}
+
+/* ===============================
+   Type Color (Background Source)
+=============================== */
+
+.req-type-sword {
+  color: #c94a4a;
+}
+
+/* 劍：紅 */
+.req-type-gun {
+  color: #4fbf7a;
+}
+
+/* 槍：綠 */
+.req-type-shield {
+  color: #3a8fd8;
+}
+
+/* 盾：藍 */
+.req-type-move {
+  color: #9b6fd8;
+}
+
+/* 移：紫 */
+.req-type-spec {
+  color: #e0b84f;
+}
+
+/* 特：黃 */
+.req-type-any {
+  color: #bfc3c9;
+}
+
+.req-type-sword-gun {
+  background: #000;
+  color: #fff;
+  border: 1px solid #444;
+}
+
+
+/* 任意：白灰 */
+
+/* 容器 */
+.skill-require {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.req-chip:hover {
+  filter: brightness(1.1);
+}
+
+/* ===============================
+   查詢浮動按鈕
+=============================== */
+/* 查詢浮動按鈕 */
+.btn-check-float {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  z-index: 10;
+
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+
+  background: rgba(30, 144, 255, 0.85);
+  border: 1px solid rgba(120, 180, 255, 0.8);
+  color: #fff;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 12px;
+  cursor: pointer;
+
+  opacity: 0;
+  transform: scale(0.85);
+  transition: all 0.18s ease;
+}
+
+/* 滑到整個列才顯示 */
+tr:hover .btn-check-float {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* hover 效果 */
+.btn-check-float:hover {
+  background: #4dabf7;
+  box-shadow: 0 0 6px rgba(77, 171, 247, 0.8);
+}
+
+/* 角色 ICO 包裝容器 */
+.char-ico-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+/* 手機版「永遠顯示」 */
+@media (max-width: 768px) {
+  .btn-check-float {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.ul-skill-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 第一行：標題列 */
+.ul-skill-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ul-skill-title {
+  font-weight: 600;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 第二行：tags */
+.ul-skill-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+
+.skill-tag {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #2e3440;
+  color: #cbd5f5;
+  border: 1px solid rgba(120, 150, 255, .25);
+}
+
+.btn-add-tag {
+  margin-left: 8px;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #4dabf7;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-add-tag:hover {
+  background: #6fbaff;
+}
+
+/* =========================
+   Watchlist Player — Observe Style
+========================= */
+.watchlist-name {
+  background: linear-gradient(180deg, #3a3420, #1e1a0f);
+  color: #ffcc66 !important;
+
+  border: 1px solid rgba(255, 204, 102, 0.6);
+  border-radius: 4px;
+
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+
+  box-shadow:
+    inset 0 0 6px rgba(0, 0, 0, 0.8),
+    0 0 6px rgba(255, 204, 102, 0.25);
+
+  white-space: nowrap;
+}
+
+/* 左側小標點 */
+.watchlist-name::before {
+  content: "◉";
+  margin-right: 4px;
+  color: #ffcc66;
+}
+
+/* =========================
+   Blacklist Player — Prison Style
+========================= */
+  .blacklist-name {
+    background: linear-gradient(180deg, #2b2b2b, #0f0f0f);
+    color: #ffeb3b !important;
+    /* 警示黃 */
+    padding: 0px 7px;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    /* text-transform: uppercase; */
+
+    border: 1px solid rgba(255, 235, 59, 0.6);
+    box-shadow:
+      inset 0 0 6px rgba(0, 0, 0, 0.8),
+      0 0 6px rgba(255, 235, 59, 0.35);
+
+    text-decoration: none;
+    display: inline-block;
+  }
