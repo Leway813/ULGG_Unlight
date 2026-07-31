@@ -222,6 +222,16 @@ def create_app(
         )
 
     @app.get(
+        "/tracker/tracker-db.js",
+        include_in_schema=False,
+    )
+    def tracker_database_script() -> FileResponse:
+        return FileResponse(
+            TRACKER_ROOT / "tracker-db.js",
+            media_type="text/javascript",
+        )
+
+    @app.get(
         "/tracker/tracker-api.js",
         include_in_schema=False,
     )

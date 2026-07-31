@@ -683,6 +683,11 @@
         </div>
 
         <div class="observation-item">
+          <small>Persistence</small>
+          <strong id="observation-persistence">initializing</strong>
+        </div>
+
+        <div class="observation-item">
           <small>Session</small>
           <strong id="observation-session">—</strong>
         </div>
@@ -690,6 +695,21 @@
         <div class="observation-item">
           <small>Cursor</small>
           <strong id="observation-cursor">0</strong>
+        </div>
+
+        <div class="observation-item">
+          <small>Checkpoint session</small>
+          <strong id="observation-checkpoint-session">—</strong>
+        </div>
+
+        <div class="observation-item">
+          <small>Checkpoint cursor</small>
+          <strong id="observation-checkpoint-cursor">0</strong>
+        </div>
+
+        <div class="observation-item">
+          <small>Checkpoint commit</small>
+          <strong id="observation-checkpoint-token">—</strong>
         </div>
 
         <div class="observation-item">
@@ -715,6 +735,11 @@
         <div class="observation-item observation-error">
           <small>Error</small>
           <strong id="observation-error">—</strong>
+        </div>
+
+        <div class="observation-item observation-error">
+          <small>Persistence error</small>
+          <strong id="observation-persistence-error">—</strong>
         </div>
       </div>
     </section>
@@ -786,6 +811,7 @@
 
   <script src="./field-decks.js"></script>
   <script src="./tracker.js"></script>
+  <script src="./tracker-db.js"></script>
   <script src="./tracker-api.js"></script>
   <script src="./observation-poller.js"></script>
 </body>

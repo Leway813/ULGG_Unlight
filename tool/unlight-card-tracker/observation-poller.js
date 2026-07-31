@@ -4,6 +4,23 @@
     const ACTIVE_INTERVAL_MS = 500;
     const IDLE_INTERVAL_MS = 1000;
     const MAX_RETRY_MS = 5000;
+    const CONSUMER_ID = "observation-poller-v1";
+    const CONSUMER_SCHEMA_VERSION = 1;
+    let fallbackCommitCounter = 0;
+
+    function defaultCommitToken() {
+        if (
+            typeof global.crypto?.randomUUID ===
+            "function"
+        ) {
+            return global.crypto.randomUUID();
+        }
+        fallbackCommitCounter += 1;
+        return [
+            Date.now().toString(36),
+            fallbackCommitCounter.toString(36)
+        ].join("-");
+    }
 
     function initialState() {
         return {
@@ -17,7 +34,12 @@
             error: null,
             sessionChanged: false,
             hasMore: false,
-            retryDelayMs: 0
+            retryDelayMs: 0,
+            persistence: "initializing",
+            persistenceError: null,
+            checkpointSessionId: null,
+            checkpointCursor: 0,
+            checkpointCommitToken: null
         };
     }
 
@@ -34,7 +56,10 @@
             global.clearTimeout(timer),
         isHidden = () =>
             Boolean(global.document?.hidden),
-        eventLimit = 100
+        eventLimit = 100,
+        checkpointStore = null,
+        now = () => new Date().toISOString(),
+        createCommitToken = defaultCommitToken
     }) {
         if (!api || !view) {
             throw new TypeError(
@@ -48,6 +73,11 @@
         let timer = null;
         let retryDelayMs = 0;
         let pausedSessionId = null;
+        let persistenceEnabled = (
+            checkpointStore !== null
+        );
+        let persistenceInitialized = false;
+        let persistedCheckpoint = null;
 
         function render() {
             view.render(copyState(state));
@@ -59,6 +89,107 @@
                     ? `${error.code}: ${error.message}`
                     : String(error)
             );
+        }
+
+        function setPersistenceFailure(error) {
+            state.persistence = (
+                error?.code === "INDEXEDDB_UNAVAILABLE"
+                    ? "unavailable"
+                    : "error"
+            );
+            state.persistenceError = (
+                error && error.code
+                    ? `${error.code}: ${error.message}`
+                    : String(error)
+            );
+            persistenceEnabled = false;
+        }
+
+        async function initializePersistence() {
+            if (persistenceInitialized) {
+                return;
+            }
+            persistenceInitialized = true;
+
+            if (!checkpointStore) {
+                state.persistence = "unavailable";
+                state.persistenceError =
+                    "memory-only";
+                persistenceEnabled = false;
+                return;
+            }
+
+            try {
+                await checkpointStore
+                    .openTrackerDatabase();
+                persistedCheckpoint =
+                    await checkpointStore
+                        .loadConsumerCheckpoint(
+                            CONSUMER_ID
+                        );
+                state.persistence = "ready";
+                state.persistenceError = null;
+                if (persistedCheckpoint) {
+                    state.checkpointSessionId =
+                        persistedCheckpoint.session_id;
+                    state.checkpointCursor =
+                        persistedCheckpoint
+                            .after_sequence;
+                    state.checkpointCommitToken =
+                        persistedCheckpoint
+                            .commit_token;
+                }
+            } catch (error) {
+                setPersistenceFailure(error);
+            }
+        }
+
+        async function persistCheckpoint(
+            sessionId,
+            afterSequence
+        ) {
+            if (!persistenceEnabled) {
+                return true;
+            }
+            if (
+                persistedCheckpoint &&
+                persistedCheckpoint.session_id ===
+                    sessionId &&
+                persistedCheckpoint.after_sequence ===
+                    afterSequence
+            ) {
+                return true;
+            }
+
+            const checkpoint = {
+                consumer_id: CONSUMER_ID,
+                session_id: sessionId,
+                after_sequence: afterSequence,
+                updated_at: now(),
+                commit_token: createCommitToken(),
+                consumer_schema_version:
+                    CONSUMER_SCHEMA_VERSION
+            };
+
+            try {
+                persistedCheckpoint =
+                    await checkpointStore
+                        .saveConsumerCheckpoint(
+                            checkpoint
+                        );
+                state.persistence = "ready";
+                state.persistenceError = null;
+                state.checkpointSessionId =
+                    persistedCheckpoint.session_id;
+                state.checkpointCursor =
+                    persistedCheckpoint.after_sequence;
+                state.checkpointCommitToken =
+                    persistedCheckpoint.commit_token;
+                return true;
+            } catch (error) {
+                setPersistenceFailure(error);
+                return false;
+            }
         }
 
         function validateEvent(event) {
@@ -105,6 +236,7 @@
         }
 
         async function pollPage() {
+            await initializePersistence();
             const session = await api.getCurrentSession();
             const nextSessionId = session.session_id;
 
@@ -114,13 +246,34 @@
             );
 
             if (state.sessionId !== nextSessionId) {
+                const canRestore = (
+                    state.sessionId === null &&
+                    persistedCheckpoint &&
+                    persistedCheckpoint.session_id ===
+                        nextSessionId
+                );
                 state.sessionId = nextSessionId;
-                state.cursor = 0;
+                state.cursor = canRestore
+                    ? persistedCheckpoint.after_sequence
+                    : 0;
                 state.loading = null;
                 state.observationMode = null;
                 state.confidence = null;
                 state.lastEventTime = null;
                 pausedSessionId = null;
+
+                if (
+                    !canRestore &&
+                    !await persistCheckpoint(
+                        state.sessionId,
+                        0
+                    )
+                ) {
+                    state.connection = "warning";
+                    state.hasMore = false;
+                    render();
+                    return;
+                }
             }
 
             if (pausedSessionId === state.sessionId) {
@@ -168,6 +321,19 @@
                 throw error;
             }
 
+            if (
+                page.next_sequence !== state.cursor &&
+                !await persistCheckpoint(
+                    state.sessionId,
+                    page.next_sequence
+                )
+            ) {
+                state.connection = "warning";
+                state.hasMore = false;
+                render();
+                return;
+            }
+
             state.cursor = page.next_sequence;
             state.hasMore = page.has_more;
             state.connection = "connected";
@@ -197,7 +363,16 @@
                     Number.isInteger(retentionStart) &&
                     retentionStart >= 1
                 ) {
-                    state.cursor = retentionStart - 1;
+                    const recoveryCursor =
+                        retentionStart - 1;
+                    if (
+                        await persistCheckpoint(
+                            state.sessionId,
+                            recoveryCursor
+                        )
+                    ) {
+                        state.cursor = recoveryCursor;
+                    }
                 }
                 retryDelayMs = IDLE_INTERVAL_MS;
             } else if (
@@ -229,6 +404,7 @@
 
             inFlight = true;
             try {
+                await initializePersistence();
                 await pollPage();
             } catch (error) {
                 await handleFailure(error);
@@ -313,6 +489,25 @@
             ),
             error: documentObject.getElementById(
                 "observation-error"
+            ),
+            persistence: documentObject.getElementById(
+                "observation-persistence"
+            ),
+            checkpointSession:
+                documentObject.getElementById(
+                    "observation-checkpoint-session"
+                ),
+            checkpointCursor:
+                documentObject.getElementById(
+                    "observation-checkpoint-cursor"
+                ),
+            checkpointCommitToken:
+                documentObject.getElementById(
+                    "observation-checkpoint-token"
+                ),
+            persistenceError:
+                documentObject.getElementById(
+                    "observation-persistence-error"
             )
         };
 
@@ -346,6 +541,21 @@
                     state.lastEventTime || "—";
                 elements.error.textContent =
                     state.error || "—";
+                elements.persistence.textContent =
+                    state.persistence;
+                elements.checkpointSession.textContent =
+                    state.checkpointSessionId
+                        ? state.checkpointSessionId.slice(
+                            0,
+                            8
+                        )
+                        : "—";
+                elements.checkpointCursor.textContent =
+                    String(state.checkpointCursor);
+                elements.checkpointCommitToken.textContent =
+                    state.checkpointCommitToken || "—";
+                elements.persistenceError.textContent =
+                    state.persistenceError || "—";
             }
         };
     }
@@ -363,7 +573,8 @@
 
         const poller = createObservationPoller({
             api: global.TrackerApi.createTrackerApi(),
-            view: createDomView(global.document)
+            view: createDomView(global.document),
+            checkpointStore: global.TrackerDb || null
         });
         global.observationPoller = poller;
         poller.start();
