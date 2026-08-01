@@ -13,12 +13,6 @@ UL.GG 是一套針對 **Unlight 對戰資料、牌組資訊與戰鬥狀態** 建
 * PHP 網站與排行榜介面
 * BP／QP 排名資料更新
 * 卡片與角色資料分析
-* 本機對戰 Tracker
-* WebSocket 戰鬥封包觀察
-* 戰鬥事件解析與狀態還原
-* Tracker FastAPI 本機服務
-* 場地影像辨識
-* Windows Tracker Launcher
 
 📌 正式網站：[UL.GG](https://ulgg.online/)
 
